@@ -138,32 +138,69 @@ inline void face_tracker_manager::attenuate_tracker()
 
 inline void face_tracker_manager::copy_detector_to_tracker()
 {
-	size_t i_tracker;
-	for (i_tracker = 0; i_tracker < trackers.size(); i_tracker++)
-		if (trackers[i_tracker].tick_cnt == detect_tick &&
-		    trackers[i_tracker].state == tracker_inst_s::tracker_state_e::tracker_state_reset_texture)
+	size_t seed_index;
+	for (seed_index = 0; seed_index < trackers.size(); seed_index++)
+		if (trackers[seed_index].tick_cnt == detect_tick &&
+		    trackers[seed_index].state == tracker_inst_s::tracker_state_e::tracker_state_reset_texture)
 			break;
-	if (i_tracker >= trackers.size())
+	if (seed_index >= trackers.size())
 		return;
 
-	if (detect_rects.size() <= 0) {
-		retire_tracker(i_tracker);
+	if (detect_rects.empty()) {
+		retire_tracker((int)seed_index);
 		return;
 	}
 
-	struct tracker_inst_s &t = trackers[i_tracker];
+	// The detector can return more than one face.  Start one correlation
+	// tracker per detection.  The existing single-face path uses the first
+	// tracker as the seed; additional trackers are created from the same
+	// camera frame so every face starts from exactly the same image.
+	for (size_t di = 0; di < detect_rects.size(); ++di) {
+		tracker_inst_s *t = nullptr;
 
-	struct rect_s r = detect_rects[0];
-	int w = r.x1 - r.x0;
-	int h = r.y1 - r.y0;
-	r.x0 -= w * upsize_l;
-	r.x1 += w * upsize_r;
-	r.y0 -= h * upsize_t;
-	r.y1 += h * upsize_b;
-	t.tracker->set_position(r); // TODO: consider how to track two or more faces.
-	t.tracker->set_upsize_info(rectf_s{upsize_l, upsize_t, upsize_r, upsize_b});
-	t.tracker->start();
-	t.state = tracker_inst_s::tracker_state_constructing;
+		if (di == 0) {
+			t = &trackers[seed_index];
+		} else {
+			tracker_inst_s extra;
+			extra.rect = rect_s{0, 0, 0, 0, 0.0f};
+			extra.crop_tracker = trackers[seed_index].crop_tracker;
+			extra.crop_rect = rectf_s{0.0f, 0.0f, 0.0f, 0.0f};
+			extra.landmark.clear();
+			extra.att = 0.0f;
+			extra.score_first = 0.0f;
+			extra.state = tracker_inst_s::tracker_state_e::tracker_state_reset_texture;
+			extra.tick_cnt = detect_tick;
+			extra.texture = trackers[seed_index].texture;
+
+			if (!trackers_idlepool.empty()) {
+				extra.tracker = trackers_idlepool.front().tracker;
+				trackers_idlepool.front().tracker = nullptr;
+				trackers_idlepool.pop_front();
+			} else {
+				extra.tracker = new face_tracker_dlib();
+			}
+
+			if (!extra.tracker || !extra.texture)
+				continue;
+
+			extra.tracker->set_texture(extra.texture);
+			extra.tracker->set_landmark_detection(landmark_detection_data);
+			trackers.push_back(std::move(extra));
+			t = &trackers.back();
+		}
+
+		struct rect_s r = detect_rects[di];
+		int w = r.x1 - r.x0;
+		int h = r.y1 - r.y0;
+		r.x0 -= w * upsize_l;
+		r.x1 += w * upsize_r;
+		r.y0 -= h * upsize_t;
+		r.y1 += h * upsize_b;
+		t->tracker->set_position(r);
+		t->tracker->set_upsize_info(rectf_s{upsize_l, upsize_t, upsize_r, upsize_b});
+		t->tracker->start();
+		t->state = tracker_inst_s::tracker_state_constructing;
+	}
 }
 
 inline void face_tracker_manager::stage_to_detector()
@@ -222,7 +259,8 @@ inline void face_tracker_manager::stage_to_detector()
 		t.crop_tracker = crop_cur;
 		t.state = tracker_inst_s::tracker_state_e::tracker_state_reset_texture;
 		t.tick_cnt = tick_cnt;
-		t.tracker->set_texture(cvtex);
+		t.texture = cvtex;
+		t.tracker->set_texture(t.texture);
 		t.tracker->set_landmark_detection(landmark_detection_data);
 		if (!landmark_detection_data)
 			t.landmark.clear();
@@ -235,7 +273,8 @@ inline void face_tracker_manager::stage_to_detector()
 inline int face_tracker_manager::stage_surface_to_tracker(struct tracker_inst_s &t)
 {
 	if (auto cvtex = get_cvtex()) {
-		t.tracker->set_texture(cvtex);
+		t.texture = cvtex;
+		t.tracker->set_texture(t.texture);
 		t.crop_tracker = crop_cur;
 		t.tracker->signal();
 	} else
