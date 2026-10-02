@@ -93,8 +93,16 @@ static void ftf_update(void *data, obs_data_t *settings)
 	s->prop_offset_x = (float)obs_data_get_double(settings, "prop_offset_x");
 	s->prop_offset_y = (float)obs_data_get_double(settings, "prop_offset_y");
 	s->prop_opacity = (float)obs_data_get_double(settings, "prop_opacity") * 0.01f;
-	s->prop_smoothing = (float)obs_data_get_double(settings, "prop_smoothing");
-        s->prop_rotation = (float)obs_data_get_double(settings, "prop_rotation");
+	s->prop_pos_smoothing = (float)obs_data_get_double(settings, "prop_pos_smoothing");
+	s->prop_scale_smoothing = (float)obs_data_get_double(settings, "prop_scale_smoothing");
+	s->prop_rotation_smoothing = (float)obs_data_get_double(settings, "prop_rotation_smoothing");
+	s->prop_rotation = (float)obs_data_get_double(settings, "prop_rotation");
+	s->prop_min_size = (float)obs_data_get_double(settings, "prop_min_size");
+	s->prop_max_size = (float)obs_data_get_double(settings, "prop_max_size");
+	s->prop_max_rotation = (float)obs_data_get_double(settings, "prop_max_rotation") * 0.01745329252f;
+	s->prop_anchor = (int)obs_data_get_int(settings, "prop_anchor");
+	s->prop_lost_behavior = (int)obs_data_get_int(settings, "prop_lost_behavior");
+	s->prop_lost_fade_time = (float)obs_data_get_double(settings, "prop_lost_fade_time");
 	s->prop_follow_size = obs_data_get_bool(settings, "prop_follow_size");
 	s->prop_follow_rotation = obs_data_get_bool(settings, "prop_follow_rotation");
 	s->prop_hide_lost = obs_data_get_bool(settings, "prop_hide_lost");
@@ -112,11 +120,33 @@ static void ftf_update(void *data, obs_data_t *settings)
 
         if (s->tracked_source_enabled && s->tracked_source_name && *s->tracked_source_name) {
                 obs_source_t *tracked_source = obs_get_source_by_name(s->tracked_source_name);
-                if (tracked_source) {
+                if (tracked_source && tracked_source != s->context) {
                         s->tracked_source_ref = obs_source_get_weak_source(tracked_source);
+                        obs_source_release(tracked_source);
+                } else if (tracked_source) {
+                        blog(LOG_WARNING, "Face Tracker: refusing to track itself");
                         obs_source_release(tracked_source);
                 }
         }
+
+        s->tracked_source_scale = (float)obs_data_get_double(settings, "tracked_source_scale");
+        s->tracked_source_offset_x = (float)obs_data_get_double(settings, "tracked_source_offset_x");
+        s->tracked_source_offset_y = (float)obs_data_get_double(settings, "tracked_source_offset_y");
+        s->tracked_source_opacity = (float)obs_data_get_double(settings, "tracked_source_opacity") * 0.01f;
+        s->tracked_source_pos_smoothing = (float)obs_data_get_double(settings, "tracked_source_pos_smoothing");
+        s->tracked_source_scale_smoothing = (float)obs_data_get_double(settings, "tracked_source_scale_smoothing");
+        s->tracked_source_rotation_smoothing = (float)obs_data_get_double(settings, "tracked_source_rotation_smoothing");
+        s->tracked_source_min_size = (float)obs_data_get_double(settings, "tracked_source_min_size");
+        s->tracked_source_max_size = (float)obs_data_get_double(settings, "tracked_source_max_size");
+        s->tracked_source_max_rotation = (float)obs_data_get_double(settings, "tracked_source_max_rotation") * 0.01745329252f;
+        s->tracked_source_lost_behavior = (int)obs_data_get_int(settings, "tracked_source_lost_behavior");
+        s->tracked_source_lost_fade_time = (float)obs_data_get_double(settings, "tracked_source_lost_fade_time");
+        s->tracked_source_follow_size = obs_data_get_bool(settings, "tracked_source_follow_size");
+        s->tracked_source_follow_rotation = obs_data_get_bool(settings, "tracked_source_follow_rotation");
+
+        s->face_size_trigger_enabled = obs_data_get_bool(settings, "face_size_trigger_enabled");
+        s->face_size_trigger_min = (float)obs_data_get_double(settings, "face_size_trigger_min") * 0.01f;
+        s->face_size_trigger_max = (float)obs_data_get_double(settings, "face_size_trigger_max") * 0.01f;
 
 	double kp = obs_data_get_double(settings, "Kp");
 	float ki = (float)obs_data_get_double(settings, "Ki");
@@ -165,8 +195,15 @@ static void cb_render_info(void *data, calldata_t *cd);
 static void cb_get_target_size(void *data, calldata_t *cd);
 static void cb_get_state(void *data, calldata_t *cd);
 static void cb_set_state(void *data, calldata_t *cd);
-static const char *ftptz_signals[] = {"void state_changed()", NULL};
+static const char *ftptz_signals[] = {
+	"void state_changed()",
+	"void face_detected()",
+	"void face_lost()",
+	"void face_size_trigger(bool active)",
+	NULL
+};
 static void emit_state_changed(struct face_tracker_filter *);
+static void emit_face_event(struct face_tracker_filter *, const char *signal, bool active);
 
 static void *ftf_create(obs_data_t *settings, obs_source_t *context)
 {
@@ -179,6 +216,9 @@ static void *ftf_create(obs_data_t *settings, obs_source_t *context)
 	s->hotkey_reset = OBS_INVALID_HOTKEY_ID;
 	s->prop_size = 120.0f;
 	s->prop_tracking = false;
+	s->tracked_source_tracking = false;
+	s->prop_render_opacity = 1.0f;
+	s->tracked_source_render_opacity = 1.0f;
 
 	obs_source_update(context, settings);
 
@@ -314,14 +354,49 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_properties_add_float(pp, "prop_offset_y", "Y offset (face widths)", -3.0, 3.0, 0.05);
  obs_properties_add_float_slider(pp, "prop_rotation", "Rotation (degrees)", -180.0, 180.0, 1.0);
 		obs_properties_add_float_slider(pp, "prop_opacity", "Opacity", 0.0, 100.0, 1.0);
-		obs_properties_add_float_slider(pp, "prop_smoothing", "Smoothing", 0.0, 0.98, 0.01);
 		obs_properties_add_bool(pp, "prop_follow_size", "Follow face size");
 		obs_properties_add_bool(pp, "prop_follow_rotation", "Follow head tilt");
 		obs_properties_add_bool(pp, "prop_hide_lost", "Hide when face is lost");
+		obs_property_t *anchor=obs_properties_add_list(pp,"prop_anchor","Prop anchor",OBS_COMBO_TYPE_LIST,OBS_COMBO_FORMAT_INT);
+		obs_property_list_add_int(anchor,"Face center",0);
+		obs_property_list_add_int(anchor,"Left eye",1);
+		obs_property_list_add_int(anchor,"Right eye",2);
+		obs_property_list_add_int(anchor,"Between eyes",3);
+		obs_property_list_add_int(anchor,"Nose",4);
+		obs_properties_add_float_slider(pp,"prop_pos_smoothing","Position smoothing",0.0,0.99,0.01);
+		obs_properties_add_float_slider(pp,"prop_scale_smoothing","Scale smoothing",0.0,0.99,0.01);
+		obs_properties_add_float_slider(pp,"prop_rotation_smoothing","Rotation smoothing",0.0,0.99,0.01);
+		obs_properties_add_float(pp,"prop_min_size","Minimum face size",1.0,10000.0,1.0);
+		obs_properties_add_float(pp,"prop_max_size","Maximum face size",1.0,10000.0,1.0);
+		obs_properties_add_float_slider(pp,"prop_max_rotation","Max head rotation",0.0,180.0,1.0);
+		obs_property_t *lost=obs_properties_add_list(pp,"prop_lost_behavior","When face is lost",OBS_COMBO_TYPE_LIST,OBS_COMBO_FORMAT_INT);
+		obs_property_list_add_int(lost,"Hide",0);
+		obs_property_list_add_int(lost,"Freeze",1);
+		obs_property_list_add_int(lost,"Fade out",2);
+		obs_properties_add_float(pp,"prop_lost_fade_time","Fade time (seconds)",0.05,5.0,0.05);
                 obs_properties_add_bool(pp, "tracked_source_enabled", "Enable Tracked Source / Scene");
                 obs_property_t *tracked_p = obs_properties_add_list(pp, "tracked_source_name", "Tracked Source / Scene", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
                 property_list_add_sources(tracked_p, s ? s->context : NULL);
 		obs_properties_add_group(props, "face_prop", "Face Prop Overlay", OBS_GROUP_NORMAL, pp);
+                obs_properties_t *sp=obs_properties_create();
+                obs_properties_add_float(sp,"tracked_source_scale","Source scale",0.1,10.0,0.05);
+                obs_properties_add_float(sp,"tracked_source_offset_x","X offset (face widths)",-3.0,3.0,0.05);
+                obs_properties_add_float(sp,"tracked_source_offset_y","Y offset (face widths)",-3.0,3.0,0.05);
+                obs_properties_add_float_slider(sp,"tracked_source_opacity","Opacity",0.0,100.0,1.0);
+                obs_properties_add_float_slider(sp,"tracked_source_pos_smoothing","Position smoothing",0.0,0.99,0.01);
+                obs_properties_add_float_slider(sp,"tracked_source_scale_smoothing","Scale smoothing",0.0,0.99,0.01);
+                obs_properties_add_float_slider(sp,"tracked_source_rotation_smoothing","Rotation smoothing",0.0,0.99,0.01);
+                obs_properties_add_bool(sp,"tracked_source_follow_size","Follow face size");
+                obs_properties_add_bool(sp,"tracked_source_follow_rotation","Follow head tilt");
+                obs_properties_add_float(sp,"tracked_source_min_size","Minimum face size",1.0,10000.0,1.0);
+                obs_properties_add_float(sp,"tracked_source_max_size","Maximum face size",1.0,10000.0,1.0);
+                obs_properties_add_float_slider(sp,"tracked_source_max_rotation","Max head rotation",0.0,180.0,1.0);
+                obs_property_t *slost=obs_properties_add_list(sp,"tracked_source_lost_behavior","When face is lost",OBS_COMBO_TYPE_LIST,OBS_COMBO_FORMAT_INT);
+                obs_property_list_add_int(slost,"Hide",0);
+                obs_property_list_add_int(slost,"Freeze",1);
+                obs_property_list_add_int(slost,"Fade out",2);
+                obs_properties_add_float(sp,"tracked_source_lost_fade_time","Fade time (seconds)",0.05,5.0,0.05);
+                obs_properties_add_group(props,"tracked_source","Tracked Source / Scene Settings",OBS_GROUP_NORMAL,sp);
 	}
 
 	{
@@ -356,6 +431,14 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_properties_t *pp = obs_properties_create();
 		obs_properties_add_bool(pp, "inactive_reset", obs_module_text("Prop.Automation.InactiveReset"));
 		obs_properties_add_group(props, "automation", obs_module_text("Automation"), OBS_GROUP_NORMAL, pp);
+	}
+
+	{
+		obs_properties_t *pp=obs_properties_create();
+		obs_properties_add_bool(pp,"face_size_trigger_enabled","Enable face size trigger");
+		obs_properties_add_float_slider(pp,"face_size_trigger_min","Minimum face size (%)",0.0,100.0,1.0);
+		obs_properties_add_float_slider(pp,"face_size_trigger_max","Maximum face size (%)",0.0,100.0,1.0);
+		obs_properties_add_group(props,"face_events","Face Events",OBS_GROUP_NORMAL,pp);
 	}
 
 	{
@@ -407,14 +490,39 @@ static void ftf_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "prop_scale", 2.2);
 	obs_data_set_default_double(settings, "prop_offset_x", 0.0);
 	obs_data_set_default_double(settings, "prop_offset_y", -0.10);
- obs_data_set_default_double(settings, "prop_rotation", 0.0);
+	obs_data_set_default_double(settings, "prop_rotation", 0.0);
 	obs_data_set_default_double(settings, "prop_opacity", 100.0);
-	obs_data_set_default_double(settings, "prop_smoothing", 0.75);
+	obs_data_set_default_double(settings, "prop_pos_smoothing", 0.70);
+	obs_data_set_default_double(settings, "prop_scale_smoothing", 0.75);
+	obs_data_set_default_double(settings, "prop_rotation_smoothing", 0.85);
+	obs_data_set_default_double(settings, "prop_min_size", 1.0);
+	obs_data_set_default_double(settings, "prop_max_size", 10000.0);
+	obs_data_set_default_double(settings, "prop_max_rotation", 180.0);
+	obs_data_set_default_int(settings, "prop_anchor", 0);
+	obs_data_set_default_int(settings, "prop_lost_behavior", 0);
+	obs_data_set_default_double(settings, "prop_lost_fade_time", 0.25);
 	obs_data_set_default_bool(settings, "prop_follow_size", true);
 	obs_data_set_default_bool(settings, "prop_follow_rotation", true);
 	obs_data_set_default_bool(settings, "prop_hide_lost", true);
- obs_data_set_default_bool(settings, "tracked_source_enabled", false);
- obs_data_set_default_string(settings, "tracked_source_name", "");
+	obs_data_set_default_bool(settings, "tracked_source_enabled", false);
+	obs_data_set_default_string(settings, "tracked_source_name", "");
+	obs_data_set_default_double(settings, "tracked_source_scale", 2.2);
+	obs_data_set_default_double(settings, "tracked_source_offset_x", 0.0);
+	obs_data_set_default_double(settings, "tracked_source_offset_y", -0.10);
+	obs_data_set_default_double(settings, "tracked_source_opacity", 100.0);
+	obs_data_set_default_double(settings, "tracked_source_pos_smoothing", 0.70);
+	obs_data_set_default_double(settings, "tracked_source_scale_smoothing", 0.75);
+	obs_data_set_default_double(settings, "tracked_source_rotation_smoothing", 0.85);
+	obs_data_set_default_double(settings, "tracked_source_min_size", 1.0);
+	obs_data_set_default_double(settings, "tracked_source_max_size", 10000.0);
+	obs_data_set_default_double(settings, "tracked_source_max_rotation", 180.0);
+	obs_data_set_default_int(settings, "tracked_source_lost_behavior", 0);
+	obs_data_set_default_double(settings, "tracked_source_lost_fade_time", 0.25);
+	obs_data_set_default_bool(settings, "tracked_source_follow_size", true);
+	obs_data_set_default_bool(settings, "tracked_source_follow_rotation", true);
+	obs_data_set_default_bool(settings, "face_size_trigger_enabled", false);
+	obs_data_set_default_double(settings, "face_size_trigger_min", 0.0);
+	obs_data_set_default_double(settings, "face_size_trigger_max", 100.0);
 
 	obs_data_set_default_double(settings, "Kp", 0.95);
 	obs_data_set_default_double(settings, "Ki", 0.3);
@@ -505,6 +613,46 @@ static void ftf_deactivate(void *data)
 		ftf_reset_tracking(nullptr, nullptr, data);
 		s->ftm->crop_cur = f3_to_rectf(s->filter_int_out, s->width_with_aspect, s->height_with_aspect);
 	}
+}
+
+static inline void calculate_overlay_target(const face_tracker_manager::tracker_rect_s &tr, int anchor,
+	float &x, float &y, float &size, float &angle)
+{
+	x = (tr.rect.x0 + tr.rect.x1) * 0.5f;
+	y = (tr.rect.y0 + tr.rect.y1) * 0.5f;
+	size = get_width(tr.rect);
+	angle = 0.0f;
+	if (tr.landmark.empty())
+		return;
+	pointf_s center = landmark_center(tr.landmark);
+	float area = landmark_area(tr.landmark);
+	if (area > 0.0f)
+		size = sqrtf(area * (float)(4.0f / M_PI));
+	if (tr.landmark.size() >= 5) {
+		float lx = (tr.landmark[0].x + tr.landmark[1].x) * 0.5f;
+		float ly = (tr.landmark[0].y + tr.landmark[1].y) * 0.5f;
+		float rx = (tr.landmark[2].x + tr.landmark[3].x) * 0.5f;
+		float ry = (tr.landmark[2].y + tr.landmark[3].y) * 0.5f;
+		switch (anchor) {
+		case 1: x = lx; y = ly; break;
+		case 2: x = rx; y = ry; break;
+		case 3: x = (lx + rx) * 0.5f; y = (ly + ry) * 0.5f; break;
+		case 4: x = tr.landmark[4].x; y = tr.landmark[4].y; break;
+		default: x = center.x; y = center.y; break;
+		}
+		angle = atan2f(ry - ly, rx - lx);
+	} else {
+		x = center.x; y = center.y;
+	}
+}
+
+static inline float lost_alpha(bool tracking, int behavior, float fade_time, float elapsed, float base)
+{
+	if (tracking || behavior == 1)
+		return base;
+	if (behavior == 2 && fade_time > 0.0f)
+		return base * std::max(0.0f, 1.0f - elapsed / fade_time);
+	return 0.0f;
 }
 
 static inline void calculate_error(struct face_tracker_filter *s);
@@ -610,6 +758,23 @@ static void ft_tick_internal(struct face_tracker_filter *s, float second, bool w
 		s->range_min_out = s->range_min;
 		s->range_min_out.v[2] = std::max(std::min(s->range_min.v[2], s->u_last.v[2]), 1.0f);
 		calculate_error(s);
+		if (s->prop_tracking) {
+			s->prop_lost_elapsed=0.0f;
+			s->prop_render_opacity=s->prop_opacity;
+			s->tracked_source_lost_elapsed=0.0f;
+			s->tracked_source_render_opacity=s->tracked_source_opacity;
+		} else {
+			s->prop_lost_elapsed+=second;
+			s->tracked_source_lost_elapsed+=second;
+			s->prop_render_opacity=lost_alpha(false,s->prop_lost_behavior,s->prop_lost_fade_time,s->prop_lost_elapsed,s->prop_opacity);
+			s->tracked_source_render_opacity=lost_alpha(false,s->tracked_source_lost_behavior,s->tracked_source_lost_fade_time,s->tracked_source_lost_elapsed,s->tracked_source_opacity);
+		}
+		if(s->face_size_trigger_enabled){
+			float frame_size=sqrtf((float)s->known_width*s->known_height);
+			float ratio=frame_size>0.0f?s->prop_size/frame_size:0.0f;
+			bool active=s->prop_tracking&&ratio>=s->face_size_trigger_min&&ratio<=s->face_size_trigger_max;
+			if(active!=s->face_size_triggered){s->face_size_triggered=active;emit_face_event(s,"face_size_trigger",active);}
+		}
 		tick_filter(s, second);
 	}
 
@@ -768,42 +933,61 @@ static inline void calculate_error(struct face_tracker_filter *s)
 		s->detect_err = f3(0, 0, 0);
 
 
-	// Update Face Prop target from the strongest currently tracked face.
+	// Update face-following overlays from the strongest currently tracked face.
 	const face_tracker_manager::tracker_rect_s *best = NULL;
-	for (const auto &tr : tracker_rects) {
+	for (const auto &tr : tracker_rects)
 		if (tr.rect.score > 0.0f && (!best || tr.rect.score > best->rect.score))
 			best = &tr;
-	}
+
+	const bool was_tracking = s->prop_tracking;
 	if (best) {
-		float tx, ty, ts, ta = 0.0f;
-		if (!best->landmark.empty()) {
-			pointf_s c = landmark_center(best->landmark);
-			float area = landmark_area(best->landmark);
-			tx = c.x; ty = c.y;
-			ts = area > 0.0f ? sqrtf(area * (float)(4.0f / M_PI)) : get_width(best->rect);
-			if (best->landmark.size() >= 4) {
-				// dlib 5-point model: first two points belong to one eye, next two to the other.
-				float ex0 = (best->landmark[0].x + best->landmark[1].x) * 0.5f;
-				float ey0 = (best->landmark[0].y + best->landmark[1].y) * 0.5f;
-				float ex1 = (best->landmark[2].x + best->landmark[3].x) * 0.5f;
-				float ey1 = (best->landmark[2].y + best->landmark[3].y) * 0.5f;
-				ta = atan2f(ey1 - ey0, ex1 - ex0);
-			}
+		float tx, ty, ts, ta;
+		calculate_overlay_target(*best, s->prop_anchor, tx, ty, ts, ta);
+		ts = std::max(s->prop_min_size, std::min(s->prop_max_size, ts));
+		ta = std::max(-s->prop_max_rotation, std::min(s->prop_max_rotation, ta));
+		float pa = 1.0f - std::max(0.0f, std::min(0.99f, s->prop_pos_smoothing));
+		float sa = 1.0f - std::max(0.0f, std::min(0.99f, s->prop_scale_smoothing));
+		float ra = 1.0f - std::max(0.0f, std::min(0.99f, s->prop_rotation_smoothing));
+		if (!s->prop_tracking) {
+			s->prop_x=tx; s->prop_y=ty; s->prop_size=ts; s->prop_angle=ta;
 		} else {
-			tx = (best->rect.x0 + best->rect.x1) * 0.5f;
-			ty = (best->rect.y0 + best->rect.y1) * 0.5f;
-			ts = get_width(best->rect);
+			s->prop_x += (tx-s->prop_x)*pa;
+			s->prop_y += (ty-s->prop_y)*pa;
+			s->prop_size += (ts-s->prop_size)*sa;
+			float da=ta-s->prop_angle;
+			while(da>(float)M_PI) da-=(float)(2*M_PI);
+			while(da<-(float)M_PI) da+=(float)(2*M_PI);
+			s->prop_angle += da*ra;
 		}
-		float a = 1.0f - s->prop_smoothing;
-		if (!s->prop_tracking) { s->prop_x=tx; s->prop_y=ty; s->prop_size=ts; s->prop_angle=ta; }
-		else {
-			s->prop_x += (tx-s->prop_x)*a; s->prop_y += (ty-s->prop_y)*a;
-			s->prop_size += (ts-s->prop_size)*a; s->prop_angle += (ta-s->prop_angle)*a;
+		s->prop_tracking=true;
+
+		if (s->tracked_source_enabled) {
+			float x,y,sz,ang;
+			calculate_overlay_target(*best, 0, x,y,sz,ang);
+			sz=std::max(s->tracked_source_min_size,std::min(s->tracked_source_max_size,sz));
+			ang=std::max(-s->tracked_source_max_rotation,std::min(s->tracked_source_max_rotation,ang));
+			float p=1.0f-std::max(0.0f,std::min(0.99f,s->tracked_source_pos_smoothing));
+			float sc=1.0f-std::max(0.0f,std::min(0.99f,s->tracked_source_scale_smoothing));
+			float r=1.0f-std::max(0.0f,std::min(0.99f,s->tracked_source_rotation_smoothing));
+			if(!s->tracked_source_tracking){
+				s->tracked_source_x=x;s->tracked_source_y=y;s->tracked_source_size=sz;s->tracked_source_angle=ang;
+			}else{
+				s->tracked_source_x+=(x-s->tracked_source_x)*p;
+				s->tracked_source_y+=(y-s->tracked_source_y)*p;
+				s->tracked_source_size+=(sz-s->tracked_source_size)*sc;
+				float da=ang-s->tracked_source_angle;
+				while(da>(float)M_PI)da-=(float)(2*M_PI);
+				while(da<-(float)M_PI)da+=(float)(2*M_PI);
+				s->tracked_source_angle+=da*r;
+			}
+			s->tracked_source_tracking=true;
 		}
-		s->prop_tracking = true;
 	} else {
-		s->prop_tracking = false;
+		s->prop_tracking=false;
+		s->tracked_source_tracking=false;
 	}
+	if(was_tracking!=s->prop_tracking)
+		emit_face_event(s,s->prop_tracking?"face_detected":"face_lost");
 
 	if (s->debug_data_error) {
 		fprintf(s->debug_data_error, "%f\t%f\t%f\t%f\n", os_gettime_ns() * 1e-9, s->detect_err.v[0],
@@ -1010,7 +1194,9 @@ static inline void draw_frame_info(struct face_tracker_filter *s, bool debug_not
 
 static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notrack)
 {
-	if (!s->prop_enabled || !s->prop_texture || (s->prop_hide_lost && !s->prop_tracking))
+	if (!s->prop_enabled || !s->prop_texture)
+		return;
+	if (!s->prop_tracking && s->prop_lost_behavior == 0)
 		return;
 
 	float x = s->prop_x + s->prop_offset_x * s->prop_size;
@@ -1042,7 +1228,7 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 	gs_eparam_t *color = gs_effect_get_param_by_name(effect, "color");
 	gs_effect_set_texture(image, s->prop_texture);
 	if (color) {
-		struct vec4 c; vec4_set(&c,1.0f,1.0f,1.0f,s->prop_opacity);
+		struct vec4 c; vec4_set(&c,1.0f,1.0f,1.0f,s->prop_render_opacity);
 		gs_effect_set_vec4(color,&c);
 	}
 	while (gs_effect_loop(effect, "Draw"))
@@ -1053,6 +1239,8 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug_notrack)
 {
         if (!s->tracked_source_enabled || !s->tracked_source_ref)
+                return;
+        if (!s->tracked_source_tracking && s->tracked_source_lost_behavior == 0)
                 return;
 
         obs_source_t *source = obs_weak_source_get_source(s->tracked_source_ref);
@@ -1089,9 +1277,9 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
         if (!tex)
                 return;
 
-        float x = s->prop_x + s->prop_offset_x * s->prop_size;
-        float y = s->prop_y + s->prop_offset_y * s->prop_size;
-        float target_w = (s->prop_follow_size ? s->prop_size : 120.0f) * s->prop_scale;
+        float x = s->tracked_source_x + s->tracked_source_offset_x * s->tracked_source_size;
+        float y = s->tracked_source_y + s->tracked_source_offset_y * s->tracked_source_size;
+        float target_w = (s->tracked_source_follow_size ? s->tracked_source_size : 120.0f) * s->tracked_source_scale;
         float target_h = target_w * (float)sh / (float)sw;
 
         gs_matrix_push();
@@ -1108,15 +1296,19 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
         }
 
         gs_matrix_translate3f(x, y, 0.0f);
-        if (s->prop_follow_rotation)
-                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_angle);
-        if (s->prop_rotation != 0.0f)
-                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_rotation * 0.01745329252f);
+        if (s->tracked_source_follow_rotation)
+                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->tracked_source_angle);
         gs_matrix_translate3f(-target_w * 0.5f, -target_h * 0.5f, 0.0f);
 
         gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
         gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+        gs_eparam_t *color = gs_effect_get_param_by_name(effect, "color");
         gs_effect_set_texture(image, tex);
+        if (color) {
+                struct vec4 c;
+                vec4_set(&c, 1.0f, 1.0f, 1.0f, s->tracked_source_render_opacity);
+                gs_effect_set_vec4(color, &c);
+        }
 
         while (gs_effect_loop(effect, "Draw"))
                 gs_draw_sprite(tex, 0, (uint32_t)target_w, (uint32_t)target_h);
@@ -1249,6 +1441,17 @@ static void cb_set_state(void *data, calldata_t *cd)
 	calldata_get_bool(cd, "reset", &reset);
 	if (reset)
 		ftf_reset_tracking(NULL, NULL, s);
+}
+
+static void emit_face_event(struct face_tracker_filter *s, const char *signal, bool active)
+{
+	struct calldata cd;
+	uint8_t stack[128];
+	calldata_init_fixed(&cd,stack,sizeof(stack));
+	calldata_set_ptr(&cd,"source",s->context);
+	calldata_set_bool(&cd,"active",active);
+	signal_handler_t *sh=obs_source_get_signal_handler(s->context);
+	signal_handler_signal(sh,signal,&cd);
 }
 
 static void emit_state_changed(struct face_tracker_filter *s)
