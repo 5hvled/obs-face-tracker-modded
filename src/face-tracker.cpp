@@ -218,9 +218,9 @@ static void cb_get_state(void *data, calldata_t *cd);
 static void cb_set_state(void *data, calldata_t *cd);
 static const char *ftptz_signals[] = {
 	"void state_changed()",
-	"void face_detected()",
-	"void face_lost()",
-	"void face_size_trigger(bool active)",
+	"void face_detected(bool active, int face_id)",
+	"void face_lost(bool active, int face_id)",
+	"void face_size_trigger(bool active, int face_id)",
 	NULL
 };
 static void emit_state_changed(struct face_tracker_filter *);
@@ -238,6 +238,7 @@ static void *ftf_create(obs_data_t *settings, obs_source_t *context)
 	s->prop_size = 120.0f;
 	s->prop_tracking = false;
 	s->tracked_source_tracking = false;
+	s->selected_face_id = 0;
 	s->prop_render_opacity = 1.0f;
 	s->tracked_source_render_opacity = 1.0f;
 	s->pose_3d_reference_set = false;
@@ -361,7 +362,7 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_properties_t *fp = obs_properties_create();
 		obs_property_t *face_sel = obs_properties_add_list(fp, "face_selection_mode", "Tracked face",
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-		obs_property_list_add_int(face_sel, "Largest face", 0);
+		obs_property_list_add_int(face_sel, "Primary face (highest confidence)", 0);
 		obs_property_list_add_int(face_sel, "Face 1", 1);
 		obs_property_list_add_int(face_sel, "Face 2", 2);
 		obs_properties_add_group(props, "face_selection", "Face selection", OBS_GROUP_NORMAL, fp);
@@ -796,7 +797,37 @@ static inline float lost_alpha(bool tracking, int behavior, float fade_time, flo
 	return 0.0f;
 }
 
+
 static inline void calculate_error(struct face_tracker_filter *s);
+
+static const face_tracker_manager::tracker_rect_s *select_tracking_face(
+	const struct face_tracker_filter *s,
+	const std::vector<face_tracker_manager::tracker_rect_s> &tracker_rects)
+{
+	std::vector<const face_tracker_manager::tracker_rect_s *> valid_faces;
+	for (const auto &tr : tracker_rects) {
+		if (tr.rect.score > 0.0f && tr.face_id > 0)
+			valid_faces.push_back(&tr);
+	}
+
+	if (valid_faces.empty())
+		return nullptr;
+
+	if (s->face_selection_mode == 0) {
+		return *std::max_element(valid_faces.begin(), valid_faces.end(),
+			[](const auto *a, const auto *b) {
+				return a->rect.score < b->rect.score;
+			});
+	}
+
+	std::sort(valid_faces.begin(), valid_faces.end(),
+		[](const auto *a, const auto *b) {
+			return a->face_id < b->face_id;
+		});
+
+	const size_t requested = (size_t)(s->face_selection_mode - 1);
+	return requested < valid_faces.size() ? valid_faces[requested] : nullptr;
+}
 
 static void calculate_aspect(struct face_tracker_filter *s)
 {
