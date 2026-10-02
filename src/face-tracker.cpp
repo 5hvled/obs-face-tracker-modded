@@ -373,6 +373,8 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_property_list_add_int(face_sel, "Primary face (highest confidence)", 0);
 		obs_property_list_add_int(face_sel, "Face 1", 1);
 		obs_property_list_add_int(face_sel, "Face 2", 2);
+		obs_property_list_add_int(face_sel, "Largest face", 3);
+		obs_property_list_add_int(face_sel, "All faces", 4);
 		obs_properties_add_group(props, "face_selection", "Face selection", OBS_GROUP_NORMAL, fp);
 	}
 
@@ -825,6 +827,24 @@ static const face_tracker_manager::tracker_rect_s *select_tracking_face(
 		return *std::max_element(valid_faces.begin(), valid_faces.end(),
 			[](const auto *a, const auto *b) {
 				return a->rect.score < b->rect.score;
+			});
+	}
+
+	// "All faces" is a rendering mode. Camera tracking still needs one
+	// deterministic face, so use the primary face for the camera crop while
+	// the prop/source render paths draw every detected face.
+	if (s->face_selection_mode == 4)
+		return *std::max_element(valid_faces.begin(), valid_faces.end(),
+			[](const auto *a, const auto *b) {
+				return a->rect.score < b->rect.score;
+			});
+
+	if (s->face_selection_mode == 3) {
+		return *std::max_element(valid_faces.begin(), valid_faces.end(),
+			[](const auto *a, const auto *b) {
+				const int aa = (a->rect.x1 - a->rect.x0) * (a->rect.y1 - a->rect.y0);
+				const int ab = (b->rect.x1 - b->rect.x0) * (b->rect.y1 - b->rect.y0);
+				return aa < ab;
 			});
 	}
 
@@ -1441,12 +1461,93 @@ static inline void draw_frame_info(struct face_tracker_filter *s, bool debug_not
 		gs_matrix_pop();
 }
 
+static inline void calculate_relative_head_pose(const struct face_tracker_filter *s,
+	const face_tracker_manager::tracker_rect_s &tr,
+	float &yaw, float &pitch, float &roll)
+{
+	calculate_head_pose_3d(tr, yaw, pitch, roll);
+	if (s->pose_3d_reference_set) {
+		yaw -= s->pose_3d_reference_yaw;
+		pitch -= s->pose_3d_reference_pitch;
+		roll -= s->pose_3d_reference_roll;
+		while (roll > (float)M_PI) roll -= (float)(2 * M_PI);
+		while (roll < -(float)M_PI) roll += (float)(2 * M_PI);
+	}
+}
+
 static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notrack)
 {
 	if (!s->prop_enabled || !s->prop_texture)
 		return;
 	if (!s->prop_tracking && s->prop_lost_behavior == 0)
 		return;
+
+	// In All faces mode each detected face gets its own prop instance.
+	// The selected-face path below remains unchanged for the normal modes.
+	if (s->face_selection_mode == 4 && s->prop_tracking) {
+		for (const auto &tr : s->ftm->tracker_rects) {
+			if (tr.face_id <= 0 || tr.rect.score <= 0.0f)
+				continue;
+
+			float x, y, size, angle;
+			calculate_overlay_target(tr, s->prop_anchor, x, y, size, angle);
+			size = std::max(s->prop_min_size, std::min(s->prop_max_size, size));
+			angle = std::max(-s->prop_max_rotation, std::min(s->prop_max_rotation, angle));
+
+			float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+			calculate_relative_head_pose(s, tr, yaw, pitch, roll);
+
+			x += s->prop_offset_x * size;
+			y += s->prop_offset_y * size;
+			float iw = (float)gs_texture_get_width(s->prop_texture);
+			float ih = (float)gs_texture_get_height(s->prop_texture);
+			if (iw <= 0 || ih <= 0)
+				continue;
+			float target_w = (s->prop_follow_size ? size : 120.0f) * s->prop_scale;
+			float target_h = target_w * ih / iw;
+
+			gs_matrix_push();
+			if (!debug_notrack) {
+				const rectf_s &crop = s->ftm->crop_cur;
+				float scale = sqrtf((float)(s->width_with_aspect * s->height_with_aspect) /
+					((crop.x1-crop.x0)*(crop.y1-crop.y0)));
+				struct matrix4 trm; matrix4_identity(&trm);
+				matrix4_translate3f(&trm,&trm,-(crop.x0+crop.x1)*0.5f,-(crop.y0+crop.y1)*0.5f,0.0f);
+				matrix4_scale3f(&trm,&trm,scale,scale,1.0f);
+				matrix4_translate3f(&trm,&trm,s->width_with_aspect/2.0f,s->height_with_aspect/2.0f,0.0f);
+				gs_matrix_mul(&trm);
+			}
+			gs_matrix_translate3f(x, y, 0.0f);
+			if (s->prop_3d_enabled) {
+				float sx = 1.0f, sy = 1.0f;
+				if (s->prop_3d_follow_yaw)
+					sx = std::max(0.25f, fabsf(cosf(yaw * s->prop_3d_yaw_amount)));
+				if (s->prop_3d_follow_pitch)
+					sy = std::max(0.25f, fabsf(cosf(pitch * s->prop_3d_pitch_amount)));
+				gs_matrix_scale3f(sx, sy, 1.0f);
+				if (s->prop_3d_follow_roll)
+					gs_matrix_rotaa4f(0.0f,0.0f,1.0f,roll * s->prop_3d_roll_amount);
+			}
+			if (s->prop_follow_rotation)
+				gs_matrix_rotaa4f(0.0f,0.0f,1.0f,angle);
+			if (s->prop_rotation != 0.0f)
+				gs_matrix_rotaa4f(0.0f,0.0f,1.0f,s->prop_rotation * 0.01745329252f);
+			gs_matrix_translate3f(-target_w*0.5f, -target_h*0.5f, 0.0f);
+
+			gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+			gs_eparam_t *color = gs_effect_get_param_by_name(effect, "color");
+			gs_effect_set_texture(image, s->prop_texture);
+			if (color) {
+				struct vec4 c; vec4_set(&c,1.0f,1.0f,1.0f,s->prop_render_opacity);
+				gs_effect_set_vec4(color,&c);
+			}
+			while (gs_effect_loop(effect, "Draw"))
+				gs_draw_sprite(s->prop_texture, 0, (uint32_t)target_w, (uint32_t)target_h);
+			gs_matrix_pop();
+		}
+		return;
+	}
 
 	float x = s->prop_x + s->prop_offset_x * s->prop_size;
 	float y = s->prop_y + s->prop_offset_y * s->prop_size;
@@ -1539,6 +1640,81 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
         gs_texture_t *tex = gs_texrender_get_texture(s->tracked_texrender);
         if (!tex)
                 return;
+
+        // All faces mode renders the selected OBS source once at every
+        // currently tracked face. The source texture is shared between instances.
+        if (s->face_selection_mode == 4 && s->prop_tracking) {
+                for (const auto &tr : s->ftm->tracker_rects) {
+                        if (tr.face_id <= 0 || tr.rect.score <= 0.0f)
+                                continue;
+
+                        float x, y, size, angle;
+                        calculate_overlay_target(tr, 0, x, y, size, angle);
+                        size = std::max(s->tracked_source_min_size,
+                                std::min(s->tracked_source_max_size, size));
+                        angle = std::max(-s->tracked_source_max_rotation,
+                                std::min(s->tracked_source_max_rotation, angle));
+
+                        float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+                        calculate_relative_head_pose(s, tr, yaw, pitch, roll);
+
+                        x += s->tracked_source_offset_x * size;
+                        y += s->tracked_source_offset_y * size;
+                        float target_w = (s->tracked_source_follow_size ? size : 120.0f) *
+                                s->tracked_source_scale;
+                        float target_h = target_w * (float)sh / (float)sw;
+
+                        gs_matrix_push();
+                        if (!debug_notrack) {
+                                const rectf_s &crop = s->ftm->crop_cur;
+                                float scale = sqrtf((float)(s->width_with_aspect * s->height_with_aspect) /
+                                        ((crop.x1-crop.x0)*(crop.y1-crop.y0)));
+                                struct matrix4 trm;
+                                matrix4_identity(&trm);
+                                matrix4_translate3f(&trm, &trm,
+                                        -(crop.x0+crop.x1)*0.5f, -(crop.y0+crop.y1)*0.5f, 0.0f);
+                                matrix4_scale3f(&trm, &trm, scale, scale, 1.0f);
+                                matrix4_translate3f(&trm, &trm,
+                                        s->width_with_aspect/2.0f, s->height_with_aspect/2.0f, 0.0f);
+                                gs_matrix_mul(&trm);
+                        }
+
+                        gs_matrix_translate3f(x, y, 0.0f);
+                        if (s->tracked_source_3d_enabled) {
+                                float sx = 1.0f, sy = 1.0f;
+                                if (s->tracked_source_3d_follow_yaw)
+                                        sx = std::max(0.25f,
+                                                fabsf(cosf(yaw * s->tracked_source_3d_yaw_amount)));
+                                if (s->tracked_source_3d_follow_pitch)
+                                        sy = std::max(0.25f,
+                                                fabsf(cosf(pitch * s->tracked_source_3d_pitch_amount)));
+                                gs_matrix_scale3f(sx, sy, 1.0f);
+                                if (s->tracked_source_3d_follow_roll)
+                                        gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f,
+                                                roll * s->tracked_source_3d_roll_amount);
+                        }
+                        if (s->tracked_source_follow_rotation)
+                                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, angle);
+                        if (s->tracked_source_rotation != 0.0f)
+                                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f,
+                                        s->tracked_source_rotation * 0.01745329252f);
+                        gs_matrix_translate3f(-target_w * 0.5f, -target_h * 0.5f, 0.0f);
+
+                        gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+                        gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+                        gs_eparam_t *color = gs_effect_get_param_by_name(effect, "color");
+                        gs_effect_set_texture(image, tex);
+                        if (color) {
+                                struct vec4 c;
+                                vec4_set(&c, 1.0f, 1.0f, 1.0f, s->tracked_source_opacity);
+                                gs_effect_set_vec4(color, &c);
+                        }
+                        while (gs_effect_loop(effect, "Draw"))
+                                gs_draw_sprite(tex, 0, (uint32_t)target_w, (uint32_t)target_h);
+                        gs_matrix_pop();
+                }
+                return;
+        }
 
         float x = s->tracked_source_x + s->tracked_source_offset_x * s->tracked_source_size;
         float y = s->tracked_source_y + s->tracked_source_offset_y * s->tracked_source_size;
