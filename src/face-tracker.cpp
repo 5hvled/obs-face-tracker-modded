@@ -224,7 +224,7 @@ static const char *ftptz_signals[] = {
 	NULL
 };
 static void emit_state_changed(struct face_tracker_filter *);
-static void emit_face_event(struct face_tracker_filter *, const char *signal, bool active);
+static void emit_face_event(struct face_tracker_filter *, const char *signal, bool active, int face_id);
 
 static void *ftf_create(obs_data_t *settings, obs_source_t *context)
 {
