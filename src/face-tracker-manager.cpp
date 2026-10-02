@@ -26,6 +26,7 @@ face_tracker_manager::face_tracker_manager()
 	crop_cur.x0 = crop_cur.x1 = crop_cur.y0 = crop_cur.y1 = 0.0f;
 	tick_cnt = detect_tick = next_tick_stage_to_detector = 0;
 	detector_in_progress = false;
+	next_face_id = 1;
 	detect = NULL;
 }
 
@@ -55,6 +56,7 @@ face_tracker_manager::~face_tracker_manager()
 inline void face_tracker_manager::retire_tracker(int ix)
 {
 	debug_track_thread("%p retire_tracker(%d %p)", this, ix, trackers[ix].tracker);
+	trackers[ix].face_id = 0;
 	trackers_idlepool.push_back(trackers[ix]);
 	trackers[ix].tracker->request_suspend();
 	trackers.erase(trackers.begin() + ix);
@@ -161,7 +163,8 @@ inline void face_tracker_manager::copy_detector_to_tracker()
 		if (di == 0) {
 			t = &trackers[seed_index];
 		} else {
-			tracker_inst_s extra;
+			tracker_inst_s extra{};
+			extra.face_id = next_face_id++;
 			extra.rect = rect_s{0, 0, 0, 0, 0.0f};
 			extra.crop_tracker = trackers[seed_index].crop_tracker;
 			extra.crop_rect = rectf_s{0.0f, 0.0f, 0.0f, 0.0f};
@@ -188,6 +191,9 @@ inline void face_tracker_manager::copy_detector_to_tracker()
 			trackers.push_back(std::move(extra));
 			t = &trackers.back();
 		}
+
+		if (t->face_id == 0)
+			t->face_id = next_face_id++;
 
 		struct rect_s r = detect_rects[di];
 		int w = r.x1 - r.x0;
@@ -237,7 +243,8 @@ inline void face_tracker_manager::stage_to_detector()
 		detector_in_progress = true;
 		detect_tick = tick_cnt;
 
-		struct tracker_inst_s t;
+		struct tracker_inst_s t{};
+		t.face_id = 0;
 		t.rect = rect_s{0, 0, 0, 0, 0.0f};
 		t.crop_rect = rectf_s{0.0f, 0.0f, 0.0f, 0.0f};
 		t.att = 0.0f;
@@ -351,6 +358,7 @@ static inline void make_tracker_rects(std::vector<face_tracker_manager::tracker_
 			tracker_rects.resize(n + 1);
 		auto &r = tracker_rects[n++];
 
+		r.face_id = trackers[i].face_id;
 		r.rect = trackers[i].rect;
 		r.rect.score = score;
 		r.crop_rect = trackers[i].crop_rect;
@@ -364,8 +372,11 @@ static inline void make_tracker_rects(std::vector<face_tracker_manager::tracker_
 void face_tracker_manager::tick(float second)
 {
 	if (reset_requested) {
-		for (int i = trackers.size() - 1; i >= 0; i--)
+		next_face_id = 1;
+		for (int i = trackers.size() - 1; i >= 0; i--) {
 			trackers[i].att = 0.0f;
+			trackers[i].face_id = 0;
+		}
 		detect_rects.clear();
 		reset_requested = false;
 	}
