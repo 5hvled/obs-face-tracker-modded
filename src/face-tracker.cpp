@@ -243,6 +243,8 @@ static void *ftf_create(obs_data_t *settings, obs_source_t *context)
 	s->pose_3d_reference_set = false;
 	s->pose_3d_current_yaw = s->pose_3d_current_pitch = s->pose_3d_current_roll = 0.0f;
 	s->pose_3d_reference_yaw = s->pose_3d_reference_pitch = s->pose_3d_reference_roll = 0.0f;
+	s->face_selection_mode = 0;
+	s->face_selection_index = 1;
 
 	obs_source_update(context, settings);
 
@@ -355,6 +357,14 @@ static obs_properties_t *ftf_properties(void *data)
 	auto *s = (struct face_tracker_filter *)data;
 	obs_properties_t *props;
 	props = obs_properties_create();
+
+	{
+		obs_property_t *face_sel = obs_properties_add_list(props, "face_selection_mode", "Tracked face", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+		obs_property_list_add_int(face_sel, "Largest face", 0);
+		obs_property_list_add_int(face_sel, "Face 1", 1);
+		obs_property_list_add_int(face_sel, "Face 2", 2);
+		obs_properties_add_int(props, "face_selection_index", "Face number", 1, 16, 1);
+	}
 
 	obs_properties_add_button(props, "ftf_reset_tracking", obs_module_text("Reset tracking"), ftf_reset_tracking);
 
@@ -554,6 +564,8 @@ static void ftf_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "track_y", +0.00); // +0.00 +0.10 +0.30
 	obs_data_set_default_double(settings, "scale_max", 10.0);
 
+	obs_data_set_default_int(settings, "face_selection_mode", 0);
+	obs_data_set_default_int(settings, "face_selection_index", 1);
 	obs_data_set_default_bool(settings, "prop_enabled", false);
 	obs_data_set_default_string(settings, "prop_path", "");
 	obs_data_set_default_double(settings, "prop_scale", 2.2);
@@ -1064,9 +1076,25 @@ static inline void calculate_error(struct face_tracker_filter *s)
 
 	// Update face-following overlays from the strongest currently tracked face.
 	const face_tracker_manager::tracker_rect_s *best = NULL;
+	std::vector<const face_tracker_manager::tracker_rect_s *> valid_faces;
 	for (const auto &tr : tracker_rects)
-		if (tr.rect.score > 0.0f && (!best || tr.rect.score > best->rect.score))
-			best = &tr;
+		if (tr.rect.score > 0.0f)
+			valid_faces.push_back(&tr);
+
+	std::sort(valid_faces.begin(), valid_faces.end(),
+		[](const auto *a, const auto *b) {
+			return a->rect.score > b->rect.score;
+		});
+
+	if (s->face_selection_mode == 1 || s->face_selection_mode == 2) {
+		const size_t requested = (s->face_selection_mode == 1)
+			? 0u
+			: (size_t)std::max(0, s->face_selection_index - 1);
+		if (requested < valid_faces.size())
+			best = valid_faces[requested];
+	} else if (!valid_faces.empty()) {
+		best = valid_faces.front();
+	}
 
 	const bool was_tracking = s->prop_tracking;
 	if (best) {
