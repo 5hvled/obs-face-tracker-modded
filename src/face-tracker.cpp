@@ -1360,10 +1360,19 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 	}
 	gs_matrix_translate3f(x, y, 0.0f);
 	if (s->prop_3d_enabled) {
-		if (s->prop_3d_follow_yaw) gs_matrix_rotaa4f(0.0f, 1.0f, 0.0f, s->prop_3d_yaw);
-		if (s->prop_3d_follow_pitch) gs_matrix_rotaa4f(1.0f, 0.0f, 0.0f, s->prop_3d_pitch);
-		if (s->prop_3d_follow_roll) gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_3d_roll);
+		// Project the flat 2D texture instead of rotating the quad around X/Y.
+		// OBS normally uses an orthographic projection here, so X/Y rotations
+		// do not produce the expected visible pitch/yaw effect.
+		float sx = 1.0f;
+		float sy = 1.0f;
+		if (s->prop_3d_follow_yaw)
+			sx = std::max(0.25f, fabsf(cosf(s->prop_3d_yaw)));
+		if (s->prop_3d_follow_pitch)
+			sy = std::max(0.25f, fabsf(cosf(s->prop_3d_pitch)));
+		gs_matrix_scale3f(sx, sy, 1.0f);
 	}
+	if (s->prop_3d_enabled && s->prop_3d_follow_roll)
+		gs_matrix_rotaa4f(0.0f,0.0f,1.0f,s->prop_3d_roll);
 	if (s->prop_follow_rotation) gs_matrix_rotaa4f(0.0f,0.0f,1.0f,s->prop_angle);
         if (s->prop_rotation != 0.0f) gs_matrix_rotaa4f(0.0f,0.0f,1.0f,s->prop_rotation * 0.01745329252f);
 	gs_matrix_translate3f(-target_w*0.5f, -target_h*0.5f, 0.0f);
@@ -1442,9 +1451,15 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
 
         gs_matrix_translate3f(x, y, 0.0f);
         if (s->tracked_source_3d_enabled) {
-        	if (s->tracked_source_3d_follow_yaw) gs_matrix_rotaa4f(0.0f, 1.0f, 0.0f, s->tracked_source_3d_yaw);
-        	if (s->tracked_source_3d_follow_pitch) gs_matrix_rotaa4f(1.0f, 0.0f, 0.0f, s->tracked_source_3d_pitch);
-        	if (s->tracked_source_3d_follow_roll) gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->tracked_source_3d_roll);
+                float sx = 1.0f;
+                float sy = 1.0f;
+                if (s->tracked_source_3d_follow_yaw)
+                        sx = std::max(0.25f, fabsf(cosf(s->tracked_source_3d_yaw)));
+                if (s->tracked_source_3d_follow_pitch)
+                        sy = std::max(0.25f, fabsf(cosf(s->tracked_source_3d_pitch)));
+                gs_matrix_scale3f(sx, sy, 1.0f);
+                if (s->tracked_source_3d_follow_roll)
+                        gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->tracked_source_3d_roll);
         }
         if (s->tracked_source_follow_rotation)
         	gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->tracked_source_angle);
