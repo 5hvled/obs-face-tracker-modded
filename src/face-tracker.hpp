@@ -39,6 +39,7 @@ struct face_tracker_filter
 	bool prop_follow_size, prop_follow_rotation, prop_hide_lost;
 	float prop_x, prop_y, prop_size, prop_angle;
 	bool prop_tracking;
+	int selected_face_id;
 	// 3D-style head pose (yaw/pitch/roll) derived from facial landmarks
 	bool prop_3d_enabled, prop_3d_follow_yaw, prop_3d_follow_pitch, prop_3d_follow_roll;
 	float prop_3d_yaw, prop_3d_pitch, prop_3d_roll;
