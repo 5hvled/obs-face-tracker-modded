@@ -39,6 +39,11 @@ struct face_tracker_filter
 	bool prop_follow_size, prop_follow_rotation, prop_hide_lost;
 	float prop_x, prop_y, prop_size, prop_angle;
 	bool prop_tracking;
+	// 3D-style head pose (yaw/pitch/roll) derived from facial landmarks
+	bool prop_3d_enabled, prop_3d_follow_yaw, prop_3d_follow_pitch, prop_3d_follow_roll;
+	float prop_3d_yaw, prop_3d_pitch, prop_3d_roll;
+	float prop_3d_yaw_smoothing, prop_3d_pitch_smoothing, prop_3d_roll_smoothing;
+	float prop_3d_yaw_amount, prop_3d_pitch_amount, prop_3d_roll_amount;
 
         // Tracked OBS source / scene
         bool tracked_source_enabled;
@@ -52,6 +57,11 @@ struct face_tracker_filter
         bool tracked_source_follow_size, tracked_source_follow_rotation;
         float tracked_source_x, tracked_source_y, tracked_source_size, tracked_source_angle;
         bool tracked_source_tracking;
+        // 3D-style head pose (yaw/pitch/roll) derived from facial landmarks
+        bool tracked_source_3d_enabled, tracked_source_3d_follow_yaw, tracked_source_3d_follow_pitch, tracked_source_3d_follow_roll;
+        float tracked_source_3d_yaw, tracked_source_3d_pitch, tracked_source_3d_roll;
+        float tracked_source_3d_yaw_smoothing, tracked_source_3d_pitch_smoothing, tracked_source_3d_roll_smoothing;
+        float tracked_source_3d_yaw_amount, tracked_source_3d_pitch_amount, tracked_source_3d_roll_amount;
 
         // Face events
         bool face_size_trigger_enabled;
