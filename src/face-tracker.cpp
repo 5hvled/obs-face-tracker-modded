@@ -361,7 +361,7 @@ static obs_properties_t *ftf_properties(void *data)
 	{
 		obs_properties_t *info = obs_properties_create();
 		obs_properties_add_text(info, "plugin_author", "Creator: @5hvled", OBS_TEXT_INFO);
-		obs_properties_add_text(info, "plugin_version", "Version: v2.1.1-stage3-multiface", OBS_TEXT_INFO);
+		obs_properties_add_text(info, "plugin_version", "Version: v2.1.2-stage3-multiface", OBS_TEXT_INFO);
 		obs_properties_add_text(info, "plugin_branch", "Build branch: stage3-multiface", OBS_TEXT_INFO);
 		obs_properties_add_group(props, "plugin_info", "5hvled Face Tracker", OBS_GROUP_NORMAL, info);
 	}
@@ -1558,7 +1558,7 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 				gs_effect_set_vec4(color,&c);
 			}
 			while (gs_effect_loop(effect, "Draw"))
-				gs_draw_quadf(s->prop_texture, 0, target_w, target_h);
+				gs_draw_sprite(s->prop_texture, 0, (uint32_t)target_w, (uint32_t)target_h);
 			gs_matrix_pop();
 		}
 		gs_blend_state_pop();
