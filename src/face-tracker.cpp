@@ -377,6 +377,9 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_properties_add_float(pp,"prop_lost_fade_time","Fade time (seconds)",0.05,5.0,0.05);
 		obs_properties_add_group(props, "face_prop", "Face Prop Overlay", OBS_GROUP_NORMAL, pp);
                 obs_properties_t *sp=obs_properties_create();
+                obs_properties_add_bool(sp, "tracked_source_enabled", "Enable Tracked Source / Scene");
+                obs_property_t *tracked_p = obs_properties_add_list(sp, "tracked_source_name", "Tracked Source / Scene", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+                property_list_add_sources(tracked_p, s ? s->context : NULL);
                 obs_properties_add_float(sp,"tracked_source_scale","Source scale",0.1,10.0,0.05);
                 obs_properties_add_float(sp,"tracked_source_offset_x","X offset (face widths)",-3.0,3.0,0.05);
                 obs_properties_add_float(sp,"tracked_source_offset_y","Y offset (face widths)",-3.0,3.0,0.05);
@@ -385,9 +388,6 @@ static obs_properties_t *ftf_properties(void *data)
                 obs_properties_add_float_slider(sp,"tracked_source_scale_smoothing","Scale smoothing",0.0,0.99,0.01);
                 obs_properties_add_float_slider(sp,"tracked_source_rotation_smoothing","Rotation smoothing",0.0,0.99,0.01);
                 obs_properties_add_float_slider(sp,"tracked_source_rotation","Rotation (degrees)",-180.0,180.0,1.0);
-                obs_properties_add_bool(sp, "tracked_source_enabled", "Enable Tracked Source / Scene");
-                obs_property_t *tracked_p = obs_properties_add_list(sp, "tracked_source_name", "Tracked Source / Scene", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-                property_list_add_sources(tracked_p, s ? s->context : NULL);
                 obs_properties_add_bool(sp,"tracked_source_follow_size","Follow face size");
                 obs_properties_add_bool(sp,"tracked_source_follow_rotation","Follow head tilt");
                 obs_properties_add_float(sp,"tracked_source_min_size","Minimum face size",1.0,10000.0,1.0);
