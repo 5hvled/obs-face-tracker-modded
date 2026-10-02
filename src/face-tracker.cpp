@@ -1065,36 +1065,37 @@ static inline void calculate_error(struct face_tracker_filter *s)
 	float sc_tot = 0.0f;
 	bool found = false;
 	auto &tracker_rects = s->ftm->tracker_rects;
-	for (size_t i = 0; i < tracker_rects.size(); i++) {
-		f3 r(tracker_rects[i].rect);
-		float score = tracker_rects[i].rect.score;
+	const face_tracker_manager::tracker_rect_s *best = select_tracking_face(s, tracker_rects);
+
+	if (best) {
+		f3 r(best->rect);
+		float score = best->rect.score;
 
 		if (s->ftm->landmark_detection_data) {
-			pointf_s center = landmark_center(tracker_rects[i].landmark);
-			float area = landmark_area(tracker_rects[i].landmark);
-			if (area <= 0.0f)
-				continue;
-
-			r.v[0] = center.x;
-			r.v[1] = center.y;
-			r.v[2] = sqrtf(area * (float)(4.0f / M_PI));
+			pointf_s center = landmark_center(best->landmark);
+			float area = landmark_area(best->landmark);
+			if (area > 0.0f) {
+				r.v[0] = center.x;
+				r.v[1] = center.y;
+				r.v[2] = sqrtf(area * (float)(4.0f / M_PI));
+			}
 		}
 
 		if (s->debug_data_tracker) {
-			fprintf(s->debug_data_tracker, "%f\t%f\t%f\t%f\t%f\n", os_gettime_ns() * 1e-9, r.v[0], r.v[1],
-				r.v[2], score);
+			fprintf(s->debug_data_tracker, "%f\t%f\t%f\t%f\t%f\n",
+				os_gettime_ns() * 1e-9, r.v[0], r.v[1], r.v[2], score);
 		}
 
-		r.v[0] -= get_width(tracker_rects[i].crop_rect) * s->track_x;
-		r.v[1] += get_height(tracker_rects[i].crop_rect) * s->track_y;
+		r.v[0] -= get_width(best->crop_rect) * s->track_x;
+		r.v[1] += get_height(best->crop_rect) * s->track_y;
 		r.v[2] /= s->track_z;
 		r = ensure_range(r, s);
-		f3 w(tracker_rects[i].crop_rect);
-
+		f3 w(best->crop_rect);
 		f3 e = (r - w) * score;
+
 		if (score > 0.0f && !isnan(e)) {
-			e_tot += e;
-			sc_tot += score;
+			e_tot = e;
+			sc_tot = score;
 			found = true;
 		}
 	}
@@ -1104,30 +1105,10 @@ static inline void calculate_error(struct face_tracker_filter *s)
 	else
 		s->detect_err = f3(0, 0, 0);
 
-
-	// Update face-following overlays from the strongest currently tracked face.
-	const face_tracker_manager::tracker_rect_s *best = NULL;
-	std::vector<const face_tracker_manager::tracker_rect_s *> valid_faces;
-	for (const auto &tr : tracker_rects)
-		if (tr.rect.score > 0.0f)
-			valid_faces.push_back(&tr);
-
-	std::sort(valid_faces.begin(), valid_faces.end(),
-		[](const auto *a, const auto *b) {
-			return a->rect.score > b->rect.score;
-		});
-
-	if (s->face_selection_mode == 1) {
-		if (!valid_faces.empty())
-			best = valid_faces[0];
-	} else if (s->face_selection_mode == 2) {
-		if (valid_faces.size() > 1)
-			best = valid_faces[1];
-	} else if (!valid_faces.empty()) {
-		best = valid_faces.front();
-	}
-
+	// The same selected face drives camera tracking, props, and tracked sources.
 	const bool was_tracking = s->prop_tracking;
+	const int previous_face_id = s->selected_face_id;
+	s->selected_face_id = best ? best->face_id : 0;
 	if (best) {
 		float tx, ty, ts, ta;
 		float pose_yaw = 0.0f, pose_pitch = 0.0f, pose_roll = 0.0f;
@@ -1227,8 +1208,14 @@ static inline void calculate_error(struct face_tracker_filter *s)
 		s->prop_tracking=false;
 		s->tracked_source_tracking=false;
 	}
-	if(was_tracking!=s->prop_tracking)
-		emit_face_event(s,s->prop_tracking?"face_detected":"face_lost",s->prop_tracking);
+	if (was_tracking && !s->prop_tracking) {
+		emit_face_event(s, "face_lost", false, previous_face_id);
+	} else if (!was_tracking && s->prop_tracking) {
+		emit_face_event(s, "face_detected", true, s->selected_face_id);
+	} else if (was_tracking && s->prop_tracking && previous_face_id != s->selected_face_id) {
+		emit_face_event(s, "face_lost", false, previous_face_id);
+		emit_face_event(s, "face_detected", true, s->selected_face_id);
+	}
 
 	if (s->debug_data_error) {
 		fprintf(s->debug_data_error, "%f\t%f\t%f\t%f\n", os_gettime_ns() * 1e-9, s->detect_err.v[0],
