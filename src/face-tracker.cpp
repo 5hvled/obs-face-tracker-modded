@@ -1659,7 +1659,21 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
 
         // All faces mode renders the selected OBS source once at every
         // currently tracked face. The source texture is shared between instances.
-        if (s->face_selection_mode == 4 && s->tracked_source_tracking) {
+        if (s->face_selection_mode == 4) {
+                bool have_face = false;
+                for (const auto &tr : s->ftm->tracker_rects) {
+                        if (tr.face_id > 0 && tr.rect.score > 0.0f) {
+                                have_face = true;
+                                break;
+                        }
+                }
+                if (!have_face)
+                        return;
+
+                gs_blend_state_push();
+                gs_enable_blending(true);
+                gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
+
                 for (const auto &tr : s->ftm->tracker_rects) {
                         if (tr.face_id <= 0 || tr.rect.score <= 0.0f)
                                 continue;
@@ -1726,9 +1740,10 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
                                 gs_effect_set_vec4(color, &c);
                         }
                         while (gs_effect_loop(effect, "Draw"))
-                                gs_draw_sprite(tex, 0, (uint32_t)target_w, (uint32_t)target_h);
+                                gs_draw_quadf(tex, 0, target_w, target_h);
                         gs_matrix_pop();
                 }
+                gs_blend_state_pop();
                 return;
         }
 
