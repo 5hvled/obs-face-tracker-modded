@@ -14,6 +14,7 @@ public:
 
 	struct tracker_rect_s
 	{
+		int face_id;
 		rect_s rect;
 		rectf_s crop_rect;
 		std::vector<pointf_s> landmark;
@@ -21,6 +22,7 @@ public:
 
 	struct tracker_inst_s
 	{
+		int face_id;
 		class face_tracker_base *tracker;
 		rect_s rect;
 		rectf_s crop_tracker; // crop corresponding to current processing image
@@ -69,6 +71,7 @@ public: /* not sure they are necessary to be public */
 
 private:
 	int next_tick_stage_to_detector;
+	int next_face_id;
 	bool detector_in_progress;
 
 public:
