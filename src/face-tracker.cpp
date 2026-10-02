@@ -1479,12 +1479,27 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 {
 	if (!s->prop_enabled || !s->prop_texture)
 		return;
-	if (!s->prop_tracking && s->prop_lost_behavior == 0)
-		return;
 
-	// In All faces mode each detected face gets its own prop instance.
-	// The selected-face path below remains unchanged for the normal modes.
-	if (s->face_selection_mode == 4 && s->prop_tracking) {
+	// All-faces rendering is independent of the primary/selected face.
+	// The selected-face tracking state is used for the camera crop, but it
+	// must not gate rendering props on the other tracked faces.
+	if (s->face_selection_mode == 4) {
+		bool have_face = false;
+		for (const auto &tr : s->ftm->tracker_rects) {
+			if (tr.face_id > 0 && tr.rect.score > 0.0f) {
+				have_face = true;
+				break;
+			}
+		}
+		if (!have_face)
+			return;
+
+		// Explicitly restore normal alpha blending for every prop instance.
+		// OBS sources/filters can leave a different graphics blend state active.
+		gs_blend_state_push();
+		gs_enable_blending(true);
+		gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
+
 		for (const auto &tr : s->ftm->tracker_rects) {
 			if (tr.face_id <= 0 || tr.rect.score <= 0.0f)
 				continue;
@@ -1543,9 +1558,10 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 				gs_effect_set_vec4(color,&c);
 			}
 			while (gs_effect_loop(effect, "Draw"))
-				gs_draw_sprite(s->prop_texture, 0, (uint32_t)target_w, (uint32_t)target_h);
+				gs_draw_quadf(s->prop_texture, 0, target_w, target_h);
 			gs_matrix_pop();
 		}
+		gs_blend_state_pop();
 		return;
 	}
 
