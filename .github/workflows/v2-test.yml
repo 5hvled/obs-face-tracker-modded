@@ -1,0 +1,68 @@
+name: V2 Test Windows Build
+
+on:
+  push:
+    branches: [test/v2-cleanup]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  artifactName: v2-test
+
+jobs:
+  windows_build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        obs: [30]
+        arch: [x64]
+    env:
+      visualStudio: 'Visual Studio 17 2022'
+      Configuration: 'RelWithDebInfo'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download obs-studio
+        id: obsdeps
+        uses: norihiro/obs-studio-devel-action@v2
+        with:
+          obs: ${{ matrix.obs }}
+
+      - name: Download dlib-models
+        shell: bash
+        run: |
+          set -ex
+          mkdir data/dlib_hog_model
+          curl -LO https://github.com/norihiro/obs-face-tracker/releases/download/0.7.0-hogdata/frontal_face_detector.dat.bz2
+          bunzip2 < frontal_face_detector.dat.bz2 > data/dlib_hog_model/frontal_face_detector.dat
+          git clone --depth 1 https://github.com/davisking/dlib-models
+          mkdir data/{dlib_cnn_model,dlib_face_landmark_model}
+          7z x dlib-models/mmod_human_face_detector.dat.bz2 -so > data/dlib_cnn_model/mmod_human_face_detector.dat
+          7z x dlib-models/shape_predictor_5_face_landmarks.dat.bz2 -so > data/dlib_face_landmark_model/shape_predictor_5_face_landmarks.dat
+          cp dlib/LICENSE.txt data/LICENSE-dlib
+          cp dlib-models/LICENSE data/LICENSE-dlib-models
+
+      - name: Build plugin
+        run: |
+          $CmakeArgs = @(
+            '-G', "${{ env.visualStudio }}"
+            '-DCMAKE_SYSTEM_VERSION=10.0.18363.657'
+          )
+          cmake -S . -B build @CmakeArgs ${{ steps.obsdeps.outputs.PLUGIN_CMAKE_OPTIONS_PS }}
+          cmake --build build --config RelWithDebInfo -j 4
+          cmake --install build --config RelWithDebInfo --prefix "$(Resolve-Path -Path .)/release"
+      - name: Package plugin
+        run: ci/windows/package-windows.cmd ${{ matrix.obs }}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.artifactName }}-windows-obs${{ matrix.obs }}-${{ matrix.arch }}
+          path: package/*
