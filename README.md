@@ -1,3 +1,21 @@
+# OBS Face Tracker — Scenes Modded
+
+> A community-modified build based on [norihiro/obs-face-tracker](https://github.com/norihiro/obs-face-tracker), adding scene/source-following and face-prop functionality for OBS workflows.
+
+## Modded features
+
+- **Face Prop Overlay** — attach a PNG prop to the tracked face.
+- Prop **scale, X/Y offset, opacity, smoothing, rotation**, and optional head-tilt following.
+- Option to **hide the prop when tracking is lost**.
+- **Tracked Source / Scene** support — render a selected OBS source/scene at the tracked face position.
+- Tracked source follows the face tracker crop/position and can follow head rotation.
+
+## Important
+
+This repository is a modded fork of the original project. The original project and its GPLv2 license are retained. See the upstream project for the original documentation and build requirements.
+
+Original project: https://github.com/norihiro/obs-face-tracker
+
 # Face Tracker Plugin for OBS Studio
 
 ## Introduction
