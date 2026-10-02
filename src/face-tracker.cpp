@@ -361,7 +361,7 @@ static obs_properties_t *ftf_properties(void *data)
 	{
 		obs_properties_t *info = obs_properties_create();
 		obs_properties_add_text(info, "plugin_author", "Creator: @5hvled", OBS_TEXT_INFO);
-		obs_properties_add_text(info, "plugin_version", "Version: v2.1.0-stage3-multiface", OBS_TEXT_INFO);
+		obs_properties_add_text(info, "plugin_version", "Version: v2.1.1-stage3-multiface", OBS_TEXT_INFO);
 		obs_properties_add_text(info, "plugin_branch", "Build branch: stage3-multiface", OBS_TEXT_INFO);
 		obs_properties_add_group(props, "plugin_info", "5hvled Face Tracker", OBS_GROUP_NORMAL, info);
 	}
