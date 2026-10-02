@@ -106,6 +106,16 @@ static void ftf_update(void *data, obs_data_t *settings)
 	s->prop_follow_size = obs_data_get_bool(settings, "prop_follow_size");
 	s->prop_follow_rotation = obs_data_get_bool(settings, "prop_follow_rotation");
 	s->prop_hide_lost = obs_data_get_bool(settings, "prop_hide_lost");
+	s->prop_3d_enabled = obs_data_get_bool(settings, "prop_3d_enabled");
+	s->prop_3d_follow_yaw = obs_data_get_bool(settings, "prop_3d_follow_yaw");
+	s->prop_3d_follow_pitch = obs_data_get_bool(settings, "prop_3d_follow_pitch");
+	s->prop_3d_follow_roll = obs_data_get_bool(settings, "prop_3d_follow_roll");
+	s->prop_3d_yaw_amount = (float)obs_data_get_double(settings, "prop_3d_yaw_amount");
+	s->prop_3d_pitch_amount = (float)obs_data_get_double(settings, "prop_3d_pitch_amount");
+	s->prop_3d_roll_amount = (float)obs_data_get_double(settings, "prop_3d_roll_amount");
+	s->prop_3d_yaw_smoothing = (float)obs_data_get_double(settings, "prop_3d_yaw_smoothing");
+	s->prop_3d_pitch_smoothing = (float)obs_data_get_double(settings, "prop_3d_pitch_smoothing");
+	s->prop_3d_roll_smoothing = (float)obs_data_get_double(settings, "prop_3d_roll_smoothing");
 	load_prop_texture(s, obs_data_get_string(settings, "prop_path"));
 
         s->tracked_source_enabled = obs_data_get_bool(settings, "tracked_source_enabled");
@@ -144,6 +154,16 @@ static void ftf_update(void *data, obs_data_t *settings)
         s->tracked_source_lost_fade_time = (float)obs_data_get_double(settings, "tracked_source_lost_fade_time");
         s->tracked_source_follow_size = obs_data_get_bool(settings, "tracked_source_follow_size");
         s->tracked_source_follow_rotation = obs_data_get_bool(settings, "tracked_source_follow_rotation");
+        s->tracked_source_3d_enabled = obs_data_get_bool(settings, "tracked_source_3d_enabled");
+        s->tracked_source_3d_follow_yaw = obs_data_get_bool(settings, "tracked_source_3d_follow_yaw");
+        s->tracked_source_3d_follow_pitch = obs_data_get_bool(settings, "tracked_source_3d_follow_pitch");
+        s->tracked_source_3d_follow_roll = obs_data_get_bool(settings, "tracked_source_3d_follow_roll");
+        s->tracked_source_3d_yaw_amount = (float)obs_data_get_double(settings, "tracked_source_3d_yaw_amount");
+        s->tracked_source_3d_pitch_amount = (float)obs_data_get_double(settings, "tracked_source_3d_pitch_amount");
+        s->tracked_source_3d_roll_amount = (float)obs_data_get_double(settings, "tracked_source_3d_roll_amount");
+        s->tracked_source_3d_yaw_smoothing = (float)obs_data_get_double(settings, "tracked_source_3d_yaw_smoothing");
+        s->tracked_source_3d_pitch_smoothing = (float)obs_data_get_double(settings, "tracked_source_3d_pitch_smoothing");
+        s->tracked_source_3d_roll_smoothing = (float)obs_data_get_double(settings, "tracked_source_3d_roll_smoothing");
 
         s->face_size_trigger_enabled = obs_data_get_bool(settings, "face_size_trigger_enabled");
         s->face_size_trigger_min = (float)obs_data_get_double(settings, "face_size_trigger_min") * 0.01f;
@@ -375,6 +395,16 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_property_list_add_int(lost,"Freeze",1);
 		obs_property_list_add_int(lost,"Fade out",2);
 		obs_properties_add_float(pp,"prop_lost_fade_time","Fade time (seconds)",0.05,5.0,0.05);
+		obs_properties_add_bool(pp, "prop_3d_enabled", "Enable 3D Head Tracking");
+		obs_properties_add_bool(pp, "prop_3d_follow_yaw", "Follow Yaw (turn left/right)");
+		obs_properties_add_bool(pp, "prop_3d_follow_pitch", "Follow Pitch (look up/down)");
+		obs_properties_add_bool(pp, "prop_3d_follow_roll", "Follow Roll (tilt head)");
+		obs_properties_add_float_slider(pp, "prop_3d_yaw_amount", "3D Yaw amount", 0.0, 2.0, 0.05);
+		obs_properties_add_float_slider(pp, "prop_3d_pitch_amount", "3D Pitch amount", 0.0, 2.0, 0.05);
+		obs_properties_add_float_slider(pp, "prop_3d_roll_amount", "3D Roll amount", 0.0, 2.0, 0.05);
+		obs_properties_add_float_slider(pp, "prop_3d_yaw_smoothing", "3D Yaw smoothing", 0.0, 0.99, 0.01);
+		obs_properties_add_float_slider(pp, "prop_3d_pitch_smoothing", "3D Pitch smoothing", 0.0, 0.99, 0.01);
+		obs_properties_add_float_slider(pp, "prop_3d_roll_smoothing", "3D Roll smoothing", 0.0, 0.99, 0.01);
 		obs_properties_add_group(props, "face_prop", "Face Prop Overlay", OBS_GROUP_NORMAL, pp);
                 obs_properties_t *sp=obs_properties_create();
                 obs_properties_add_bool(sp, "tracked_source_enabled", "Enable Tracked Source / Scene");
@@ -393,6 +423,16 @@ static obs_properties_t *ftf_properties(void *data)
                 obs_properties_add_float(sp,"tracked_source_min_size","Minimum face size",1.0,10000.0,1.0);
                 obs_properties_add_float(sp,"tracked_source_max_size","Maximum face size",1.0,10000.0,1.0);
                 obs_properties_add_float_slider(sp,"tracked_source_max_rotation","Max head rotation",0.0,180.0,1.0);
+                obs_properties_add_bool(sp,"tracked_source_3d_enabled","Enable 3D Head Tracking");
+                obs_properties_add_bool(sp,"tracked_source_3d_follow_yaw","Follow Yaw (turn left/right)");
+                obs_properties_add_bool(sp,"tracked_source_3d_follow_pitch","Follow Pitch (look up/down)");
+                obs_properties_add_bool(sp,"tracked_source_3d_follow_roll","Follow Roll (tilt head)");
+                obs_properties_add_float_slider(sp,"tracked_source_3d_yaw_amount","3D Yaw amount",0.0,2.0,0.05);
+                obs_properties_add_float_slider(sp,"tracked_source_3d_pitch_amount","3D Pitch amount",0.0,2.0,0.05);
+                obs_properties_add_float_slider(sp,"tracked_source_3d_roll_amount","3D Roll amount",0.0,2.0,0.05);
+                obs_properties_add_float_slider(sp,"tracked_source_3d_yaw_smoothing","3D Yaw smoothing",0.0,0.99,0.01);
+                obs_properties_add_float_slider(sp,"tracked_source_3d_pitch_smoothing","3D Pitch smoothing",0.0,0.99,0.01);
+                obs_properties_add_float_slider(sp,"tracked_source_3d_roll_smoothing","3D Roll smoothing",0.0,0.99,0.01);
                 obs_property_t *slost=obs_properties_add_list(sp,"tracked_source_lost_behavior","When face is lost",OBS_COMBO_TYPE_LIST,OBS_COMBO_FORMAT_INT);
                 obs_property_list_add_int(slost,"Hide",0);
                 obs_property_list_add_int(slost,"Freeze",1);
@@ -506,6 +546,16 @@ static void ftf_get_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, "prop_follow_size", true);
 	obs_data_set_default_bool(settings, "prop_follow_rotation", true);
 	obs_data_set_default_bool(settings, "prop_hide_lost", true);
+	obs_data_set_default_bool(settings, "prop_3d_enabled", false);
+	obs_data_set_default_bool(settings, "prop_3d_follow_yaw", true);
+	obs_data_set_default_bool(settings, "prop_3d_follow_pitch", true);
+	obs_data_set_default_bool(settings, "prop_3d_follow_roll", true);
+	obs_data_set_default_double(settings, "prop_3d_yaw_amount", 1.0);
+	obs_data_set_default_double(settings, "prop_3d_pitch_amount", 1.0);
+	obs_data_set_default_double(settings, "prop_3d_roll_amount", 1.0);
+	obs_data_set_default_double(settings, "prop_3d_yaw_smoothing", 0.75);
+	obs_data_set_default_double(settings, "prop_3d_pitch_smoothing", 0.75);
+	obs_data_set_default_double(settings, "prop_3d_roll_smoothing", 0.75);
 	obs_data_set_default_bool(settings, "tracked_source_enabled", false);
 	obs_data_set_default_string(settings, "tracked_source_name", "");
 	obs_data_set_default_double(settings, "tracked_source_scale", 2.2);
@@ -523,6 +573,16 @@ static void ftf_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "tracked_source_lost_fade_time", 0.25);
 	obs_data_set_default_bool(settings, "tracked_source_follow_size", true);
 	obs_data_set_default_bool(settings, "tracked_source_follow_rotation", true);
+	obs_data_set_default_bool(settings, "tracked_source_3d_enabled", false);
+	obs_data_set_default_bool(settings, "tracked_source_3d_follow_yaw", true);
+	obs_data_set_default_bool(settings, "tracked_source_3d_follow_pitch", true);
+	obs_data_set_default_bool(settings, "tracked_source_3d_follow_roll", true);
+	obs_data_set_default_double(settings, "tracked_source_3d_yaw_amount", 1.0);
+	obs_data_set_default_double(settings, "tracked_source_3d_pitch_amount", 1.0);
+	obs_data_set_default_double(settings, "tracked_source_3d_roll_amount", 1.0);
+	obs_data_set_default_double(settings, "tracked_source_3d_yaw_smoothing", 0.75);
+	obs_data_set_default_double(settings, "tracked_source_3d_pitch_smoothing", 0.75);
+	obs_data_set_default_double(settings, "tracked_source_3d_roll_smoothing", 0.75);
 	obs_data_set_default_bool(settings, "face_size_trigger_enabled", false);
 	obs_data_set_default_double(settings, "face_size_trigger_min", 0.0);
 	obs_data_set_default_double(settings, "face_size_trigger_max", 100.0);
@@ -647,6 +707,45 @@ static inline void calculate_overlay_target(const face_tracker_manager::tracker_
 	} else {
 		x = center.x; y = center.y;
 	}
+}
+
+static inline void calculate_head_pose_3d(const face_tracker_manager::tracker_rect_s &tr,
+	float &yaw, float &pitch, float &roll)
+{
+	yaw = pitch = roll = 0.0f;
+	if (tr.landmark.size() < 5)
+		return;
+
+	const float lx = (tr.landmark[0].x + tr.landmark[1].x) * 0.5f;
+	const float ly = (tr.landmark[0].y + tr.landmark[1].y) * 0.5f;
+	const float rx = (tr.landmark[2].x + tr.landmark[3].x) * 0.5f;
+	const float ry = (tr.landmark[2].y + tr.landmark[3].y) * 0.5f;
+	const float nx = tr.landmark[4].x;
+	const float ny = tr.landmark[4].y;
+	const float ex = rx - lx;
+	const float ey = ry - ly;
+	const float eye_dist = sqrtf(ex * ex + ey * ey);
+	if (eye_dist < 1.0f)
+		return;
+
+	const float eye_angle = atan2f(ey, ex);
+	const float c = cosf(eye_angle);
+	const float sn = sinf(eye_angle);
+	const float mx = (lx + rx) * 0.5f;
+	const float my = (ly + ry) * 0.5f;
+	const float nose_x = (nx - mx) * c + (ny - my) * sn;
+	const float nose_y = -(nx - mx) * sn + (ny - my) * c;
+
+	roll = eye_angle;
+	const float yaw_norm = nose_x / eye_dist;
+	const float pitch_norm = (nose_y / eye_dist) - 0.58f;
+	yaw = atan2f(yaw_norm, 0.55f);
+	pitch = -atan2f(pitch_norm, 1.10f);
+
+	const float max_pose = 75.0f * 0.01745329252f;
+	yaw = std::max(-max_pose, std::min(max_pose, yaw));
+	pitch = std::max(-max_pose, std::min(max_pose, pitch));
+	roll = std::max(-max_pose, std::min(max_pose, roll));
 }
 
 static inline float lost_alpha(bool tracking, int behavior, float fade_time, float elapsed, float base)
@@ -945,6 +1044,8 @@ static inline void calculate_error(struct face_tracker_filter *s)
 	const bool was_tracking = s->prop_tracking;
 	if (best) {
 		float tx, ty, ts, ta;
+		float pose_yaw = 0.0f, pose_pitch = 0.0f, pose_roll = 0.0f;
+		calculate_head_pose_3d(*best, pose_yaw, pose_pitch, pose_roll);
 		calculate_overlay_target(*best, s->prop_anchor, tx, ty, ts, ta);
 		ts = std::max(s->prop_min_size, std::min(s->prop_max_size, ts));
 		ta = std::max(-s->prop_max_rotation, std::min(s->prop_max_rotation, ta));
@@ -962,7 +1063,25 @@ static inline void calculate_error(struct face_tracker_filter *s)
 			while(da<-(float)M_PI) da+=(float)(2*M_PI);
 			s->prop_angle += da*ra;
 		}
+		const bool prop_was_tracking = s->prop_tracking;
 		s->prop_tracking=true;
+		if (s->prop_3d_enabled) {
+			const float ya = pose_yaw * s->prop_3d_yaw_amount;
+			const float pi = pose_pitch * s->prop_3d_pitch_amount;
+			const float ro = pose_roll * s->prop_3d_roll_amount;
+			const float yk = 1.0f - std::max(0.0f, std::min(0.99f, s->prop_3d_yaw_smoothing));
+			const float pk = 1.0f - std::max(0.0f, std::min(0.99f, s->prop_3d_pitch_smoothing));
+			const float rk = 1.0f - std::max(0.0f, std::min(0.99f, s->prop_3d_roll_smoothing));
+			if (!prop_was_tracking) {
+				s->prop_3d_yaw = ya; s->prop_3d_pitch = pi; s->prop_3d_roll = ro;
+			} else {
+				s->prop_3d_yaw += (ya - s->prop_3d_yaw) * yk;
+				s->prop_3d_pitch += (pi - s->prop_3d_pitch) * pk;
+				s->prop_3d_roll += (ro - s->prop_3d_roll) * rk;
+			}
+		} else {
+			s->prop_3d_yaw = s->prop_3d_pitch = s->prop_3d_roll = 0.0f;
+		}
 
 		if (s->tracked_source_enabled) {
 			float x,y,sz,ang;
@@ -983,7 +1102,25 @@ static inline void calculate_error(struct face_tracker_filter *s)
 				while(da<-(float)M_PI)da+=(float)(2*M_PI);
 				s->tracked_source_angle+=da*r;
 			}
+			const bool tracked_was_tracking = s->tracked_source_tracking;
 			s->tracked_source_tracking=true;
+			if (s->tracked_source_3d_enabled) {
+				const float ya = pose_yaw * s->tracked_source_3d_yaw_amount;
+				const float pi = pose_pitch * s->tracked_source_3d_pitch_amount;
+				const float ro = pose_roll * s->tracked_source_3d_roll_amount;
+				const float yk = 1.0f - std::max(0.0f, std::min(0.99f, s->tracked_source_3d_yaw_smoothing));
+				const float pk = 1.0f - std::max(0.0f, std::min(0.99f, s->tracked_source_3d_pitch_smoothing));
+				const float rk = 1.0f - std::max(0.0f, std::min(0.99f, s->tracked_source_3d_roll_smoothing));
+				if (!tracked_was_tracking) {
+					s->tracked_source_3d_yaw = ya; s->tracked_source_3d_pitch = pi; s->tracked_source_3d_roll = ro;
+				} else {
+					s->tracked_source_3d_yaw += (ya - s->tracked_source_3d_yaw) * yk;
+					s->tracked_source_3d_pitch += (pi - s->tracked_source_3d_pitch) * pk;
+					s->tracked_source_3d_roll += (ro - s->tracked_source_3d_roll) * rk;
+				}
+			} else {
+				s->tracked_source_3d_yaw = s->tracked_source_3d_pitch = s->tracked_source_3d_roll = 0.0f;
+			}
 		}
 	} else {
 		s->prop_tracking=false;
