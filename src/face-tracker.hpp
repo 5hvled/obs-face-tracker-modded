@@ -67,6 +67,10 @@ struct face_tracker_filter
         float tracked_source_3d_yaw_smoothing, tracked_source_3d_pitch_smoothing, tracked_source_3d_roll_smoothing;
         float tracked_source_3d_yaw_amount, tracked_source_3d_pitch_amount, tracked_source_3d_roll_amount;
 
+        // Multi-face selection: 0 = largest face, 1 = Face 1, 2 = Face 2.
+        int face_selection_mode;
+        int face_selection_index;
+
         // Face events
         bool face_size_trigger_enabled;
         float face_size_trigger_min, face_size_trigger_max;
