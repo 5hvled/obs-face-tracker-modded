@@ -7,6 +7,7 @@
 #include "plugin-macros.generated.h"
 #include "texture-object.h"
 #include <algorithm>
+#include <cmath>
 #include <graphics/matrix4.h>
 #include "helper.hpp"
 #include "face-tracker.hpp"
@@ -15,7 +16,6 @@
 #include "source_list.h"
 
 extern "C" uint64_t os_gettime_ns(void);
-
 
 static inline void scale_texture(struct face_tracker_filter *s, float scale);
 static inline int stage_to_surface(struct face_tracker_filter *s, float scale);
@@ -72,8 +72,8 @@ static void load_prop_texture(struct face_tracker_filter *s, const char *path)
 	if (path && *path)
 		s->prop_texture = gs_texture_create_from_file(path);
 	obs_leave_graphics();
-        bfree(s->prop_path);
-        s->prop_path = bstrdup(path ? path : "");
+	bfree(s->prop_path);
+	s->prop_path = bstrdup(path ? path : "");
 }
 
 static void ftf_update(void *data, obs_data_t *settings)
@@ -86,37 +86,36 @@ static void ftf_update(void *data, obs_data_t *settings)
 	s->track_y = obs_data_get_double(settings, "track_y");
 	s->scale_max = obs_data_get_double(settings, "scale_max");
 
-
 	s->prop_enabled = obs_data_get_bool(settings, "prop_enabled");
 
 	s->prop_scale = (float)obs_data_get_double(settings, "prop_scale");
 	s->prop_offset_x = (float)obs_data_get_double(settings, "prop_offset_x");
 	s->prop_offset_y = (float)obs_data_get_double(settings, "prop_offset_y");
-	s->prop_opacity = (float)obs_data_get_double(settings, "prop_opacity") * 0.01f;
-	s->prop_smoothing = (float)obs_data_get_double(settings, "prop_smoothing");
-        s->prop_rotation = (float)obs_data_get_double(settings, "prop_rotation");
+	s->prop_opacity = std::clamp((float)obs_data_get_double(settings, "prop_opacity") * 0.01f, 0.0f, 1.0f);
+	s->prop_smoothing = std::clamp((float)obs_data_get_double(settings, "prop_smoothing"), 0.0f, 1.0f);
+	s->prop_rotation = (float)obs_data_get_double(settings, "prop_rotation");
 	s->prop_follow_size = obs_data_get_bool(settings, "prop_follow_size");
 	s->prop_follow_rotation = obs_data_get_bool(settings, "prop_follow_rotation");
 	s->prop_hide_lost = obs_data_get_bool(settings, "prop_hide_lost");
 	load_prop_texture(s, obs_data_get_string(settings, "prop_path"));
 
-        s->tracked_source_enabled = obs_data_get_bool(settings, "tracked_source_enabled");
-        const char *tracked_name = obs_data_get_string(settings, "tracked_source_name");
-        bfree(s->tracked_source_name);
-        s->tracked_source_name = bstrdup(tracked_name ? tracked_name : "");
+	s->tracked_source_enabled = obs_data_get_bool(settings, "tracked_source_enabled");
+	const char *tracked_name = obs_data_get_string(settings, "tracked_source_name");
+	bfree(s->tracked_source_name);
+	s->tracked_source_name = bstrdup(tracked_name ? tracked_name : "");
 
-        if (s->tracked_source_ref) {
-                obs_weak_source_release(s->tracked_source_ref);
-                s->tracked_source_ref = NULL;
-        }
+	if (s->tracked_source_ref) {
+		obs_weak_source_release(s->tracked_source_ref);
+		s->tracked_source_ref = NULL;
+	}
 
-        if (s->tracked_source_enabled && s->tracked_source_name && *s->tracked_source_name) {
-                obs_source_t *tracked_source = obs_get_source_by_name(s->tracked_source_name);
-                if (tracked_source) {
-                        s->tracked_source_ref = obs_source_get_weak_source(tracked_source);
-                        obs_source_release(tracked_source);
-                }
-        }
+	if (s->tracked_source_enabled && s->tracked_source_name && *s->tracked_source_name) {
+		obs_source_t *tracked_source = obs_get_source_by_name(s->tracked_source_name);
+		if (tracked_source) {
+			s->tracked_source_ref = obs_source_get_weak_source(tracked_source);
+			obs_source_release(tracked_source);
+		}
+	}
 
 	double kp = obs_data_get_double(settings, "Kp");
 	float ki = (float)obs_data_get_double(settings, "Ki");
@@ -150,14 +149,12 @@ static void ftf_update(void *data, obs_data_t *settings)
 
 static void fts_update(void *data, obs_data_t *settings)
 {
-        auto *s = (struct face_tracker_filter *)data;
-        ftf_update(data, settings);
+	auto *s = (struct face_tracker_filter *)data;
+	ftf_update(data, settings);
 
-        const char *target_name = obs_data_get_string(settings, "target_name");
- if (target_name && *target_name) {
- bfree(s->target_name);
- s->target_name = bstrdup(target_name);
- }
+	const char *target_name = obs_data_get_string(settings, "target_name");
+	bfree(s->target_name);
+	s->target_name = bstrdup(target_name ? target_name : "");
 }
 
 static void cb_render_frame(void *data, calldata_t *cd);
@@ -217,8 +214,8 @@ static void ftf_destroy(void *data)
 
 	obs_enter_graphics();
 	gs_texrender_destroy(s->texrender);
-        gs_texrender_destroy(s->tracked_texrender);
-        s->tracked_texrender = NULL;
+	gs_texrender_destroy(s->tracked_texrender);
+	s->tracked_texrender = NULL;
 	s->texrender = NULL;
 	gs_texrender_destroy(s->texrender_scaled);
 	s->texrender_scaled = NULL;
@@ -226,14 +223,15 @@ static void ftf_destroy(void *data)
 	s->stagesurface = NULL;
 	gs_texture_destroy(s->prop_texture);
 	s->prop_texture = NULL;
+	gs_effect_destroy(s->prop_effect);
 	obs_leave_graphics();
 
 	delete s->ftm;
 
 	bfree(s->target_name);
 	bfree(s->prop_path);
-        bfree(s->tracked_source_name);
-        obs_weak_source_release(s->tracked_source_ref);
+	bfree(s->tracked_source_name);
+	obs_weak_source_release(s->tracked_source_ref);
 	obs_weak_source_release(s->target_ref);
 	if (s->debug_data_tracker)
 		fclose(s->debug_data_tracker);
@@ -305,22 +303,24 @@ static obs_properties_t *ftf_properties(void *data)
 					 pp);
 	}
 
-{
+	{
 		obs_properties_t *pp = obs_properties_create();
 		obs_properties_add_bool(pp, "prop_enabled", "Enable Face Prop");
-		obs_properties_add_path(pp, "prop_path", "PNG image", OBS_PATH_FILE, "PNG files (*.png);;All files (*.*)", NULL);
+		obs_properties_add_path(pp, "prop_path", "PNG image", OBS_PATH_FILE,
+					"PNG files (*.png);;All files (*.*)", NULL);
 		obs_properties_add_float(pp, "prop_scale", "Prop scale", 0.1, 10.0, 0.05);
 		obs_properties_add_float(pp, "prop_offset_x", "X offset (face widths)", -3.0, 3.0, 0.05);
 		obs_properties_add_float(pp, "prop_offset_y", "Y offset (face widths)", -3.0, 3.0, 0.05);
- obs_properties_add_float_slider(pp, "prop_rotation", "Rotation (degrees)", -180.0, 180.0, 1.0);
+		obs_properties_add_float_slider(pp, "prop_rotation", "Rotation (degrees)", -180.0, 180.0, 1.0);
 		obs_properties_add_float_slider(pp, "prop_opacity", "Opacity", 0.0, 100.0, 1.0);
 		obs_properties_add_float_slider(pp, "prop_smoothing", "Smoothing", 0.0, 0.98, 0.01);
 		obs_properties_add_bool(pp, "prop_follow_size", "Follow face size");
 		obs_properties_add_bool(pp, "prop_follow_rotation", "Follow head tilt");
 		obs_properties_add_bool(pp, "prop_hide_lost", "Hide when face is lost");
-                obs_properties_add_bool(pp, "tracked_source_enabled", "Enable Tracked Source / Scene");
-                obs_property_t *tracked_p = obs_properties_add_list(pp, "tracked_source_name", "Tracked Source / Scene", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-                property_list_add_sources(tracked_p, s ? s->context : NULL);
+		obs_properties_add_bool(pp, "tracked_source_enabled", "Enable Tracked Source / Scene");
+		obs_property_t *tracked_p = obs_properties_add_list(pp, "tracked_source_name", "Tracked Source / Scene",
+								    OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+		property_list_add_sources(tracked_p, s ? s->context : NULL);
 		obs_properties_add_group(props, "face_prop", "Face Prop Overlay", OBS_GROUP_NORMAL, pp);
 	}
 
@@ -407,14 +407,14 @@ static void ftf_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "prop_scale", 2.2);
 	obs_data_set_default_double(settings, "prop_offset_x", 0.0);
 	obs_data_set_default_double(settings, "prop_offset_y", -0.10);
- obs_data_set_default_double(settings, "prop_rotation", 0.0);
+	obs_data_set_default_double(settings, "prop_rotation", 0.0);
 	obs_data_set_default_double(settings, "prop_opacity", 100.0);
 	obs_data_set_default_double(settings, "prop_smoothing", 0.75);
 	obs_data_set_default_bool(settings, "prop_follow_size", true);
 	obs_data_set_default_bool(settings, "prop_follow_rotation", true);
 	obs_data_set_default_bool(settings, "prop_hide_lost", true);
- obs_data_set_default_bool(settings, "tracked_source_enabled", false);
- obs_data_set_default_string(settings, "tracked_source_name", "");
+	obs_data_set_default_bool(settings, "tracked_source_enabled", false);
+	obs_data_set_default_string(settings, "tracked_source_name", "");
 
 	obs_data_set_default_double(settings, "Kp", 0.95);
 	obs_data_set_default_double(settings, "Ki", 0.3);
@@ -650,7 +650,15 @@ static void fts_tick(void *data, float second)
 	obs_source_t *target = obs_weak_source_get_source(s->target_ref);
 	const char *name = obs_source_get_name(target);
 
-	if (s->target_name && (!target || !name || strcmp(name, s->target_name))) {
+	if (!s->target_name || !*s->target_name) {
+		obs_source_release(target);
+		obs_weak_source_release(s->target_ref);
+		s->target_ref = NULL;
+		s->known_width = s->known_height = 0;
+		return;
+	}
+
+	if (!target || !name || strcmp(name, s->target_name)) {
 		obs_source_release(target);
 		obs_weak_source_release(s->target_ref);
 		target = obs_get_source_by_name(s->target_name);
@@ -767,7 +775,6 @@ static inline void calculate_error(struct face_tracker_filter *s)
 	else
 		s->detect_err = f3(0, 0, 0);
 
-
 	// Update Face Prop target from the strongest currently tracked face.
 	const face_tracker_manager::tracker_rect_s *best = NULL;
 	for (const auto &tr : tracker_rects) {
@@ -779,7 +786,8 @@ static inline void calculate_error(struct face_tracker_filter *s)
 		if (!best->landmark.empty()) {
 			pointf_s c = landmark_center(best->landmark);
 			float area = landmark_area(best->landmark);
-			tx = c.x; ty = c.y;
+			tx = c.x;
+			ty = c.y;
 			ts = area > 0.0f ? sqrtf(area * (float)(4.0f / M_PI)) : get_width(best->rect);
 			if (best->landmark.size() >= 4) {
 				// dlib 5-point model: first two points belong to one eye, next two to the other.
@@ -795,10 +803,18 @@ static inline void calculate_error(struct face_tracker_filter *s)
 			ts = get_width(best->rect);
 		}
 		float a = 1.0f - s->prop_smoothing;
-		if (!s->prop_tracking) { s->prop_x=tx; s->prop_y=ty; s->prop_size=ts; s->prop_angle=ta; }
-		else {
-			s->prop_x += (tx-s->prop_x)*a; s->prop_y += (ty-s->prop_y)*a;
-			s->prop_size += (ts-s->prop_size)*a; s->prop_angle += (ta-s->prop_angle)*a;
+		if (!s->prop_tracking) {
+			s->prop_x = tx;
+			s->prop_y = ty;
+			s->prop_size = ts;
+			s->prop_angle = ta;
+		} else {
+			s->prop_x += (tx - s->prop_x) * a;
+			s->prop_y += (ty - s->prop_y) * a;
+			s->prop_size += (ts - s->prop_size) * a;
+			s->prop_angle = std::remainder(
+				s->prop_angle + std::remainder(ta - s->prop_angle, (float)(2.0 * M_PI)) * a,
+				(float)(2.0 * M_PI));
 		}
 		s->prop_tracking = true;
 	} else {
@@ -1008,6 +1024,73 @@ static inline void draw_frame_info(struct face_tracker_filter *s, bool debug_not
 		gs_matrix_pop();
 }
 
+// A dedicated effect handles straight-alpha PNGs and premultiplied OBS textures.
+static void draw_prop_texture(struct face_tracker_filter *s, gs_texture_t *tex, uint32_t width, uint32_t height,
+			      bool premultiplied)
+{
+	if (!width || !height || s->prop_opacity <= 0.0f)
+		return;
+	if (!s->prop_effect) {
+		char *path = obs_module_file("face-prop.effect");
+		if (path) {
+			s->prop_effect = gs_effect_create_from_file(path, NULL);
+			bfree(path);
+		}
+	}
+	if (!s->prop_effect)
+		return;
+	gs_effect_set_texture(gs_effect_get_param_by_name(s->prop_effect, "image"), tex);
+	gs_effect_set_float(gs_effect_get_param_by_name(s->prop_effect, "opacity"), s->prop_opacity);
+	gs_blend_state_push();
+	gs_blend_function(GS_BLEND_ONE, GS_BLEND_INVSRCALPHA);
+	while (gs_effect_loop(s->prop_effect, premultiplied ? "DrawPremultiplied" : "DrawStraight"))
+		gs_draw_sprite(tex, 0, width, height);
+	gs_blend_state_pop();
+}
+
+struct prop_source_check
+{
+	obs_source_t *context;
+	obs_source_t *parent;
+	bool recursive;
+};
+
+static void check_prop_child(obs_source_t *, obs_source_t *child, void *data)
+{
+	auto *check = static_cast<prop_source_check *>(data);
+	if (child == check->context || child == check->parent)
+		check->recursive = true;
+}
+
+static bool recursive_prop_source(struct face_tracker_filter *s, obs_source_t *source)
+{
+	prop_source_check check{s->context, obs_filter_get_parent(s->context), false};
+	check_prop_child(NULL, source, &check);
+	obs_source_enum_full_tree(source, check_prop_child, &check);
+	return check.recursive;
+}
+
+// Also stop indirect cycles through other tracker instances or custom sources.
+class tracker_render_guard {
+	static thread_local std::vector<obs_source_t *> stack;
+	bool entered;
+
+public:
+	explicit tracker_render_guard(obs_source_t *source)
+		: entered(std::find(stack.begin(), stack.end(), source) == stack.end())
+	{
+		if (entered)
+			stack.push_back(source);
+	}
+	~tracker_render_guard()
+	{
+		if (entered)
+			stack.pop_back();
+	}
+	explicit operator bool() const { return entered; }
+};
+thread_local std::vector<obs_source_t *> tracker_render_guard::stack;
+
 static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notrack)
 {
 	if (!s->prop_enabled || !s->prop_texture || (s->prop_hide_lost && !s->prop_tracking))
@@ -1017,7 +1100,8 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 	float y = s->prop_y + s->prop_offset_y * s->prop_size;
 	float iw = (float)gs_texture_get_width(s->prop_texture);
 	float ih = (float)gs_texture_get_height(s->prop_texture);
-	if (iw <= 0 || ih <= 0) return;
+	if (iw <= 0 || ih <= 0)
+		return;
 	float target_w = (s->prop_follow_size ? s->prop_size : 120.0f) * s->prop_scale;
 	float target_h = target_w * ih / iw;
 
@@ -1025,105 +1109,107 @@ static inline void draw_face_prop(struct face_tracker_filter *s, bool debug_notr
 	if (!debug_notrack) {
 		const rectf_s &crop = s->ftm->crop_cur;
 		float scale = sqrtf((float)(s->width_with_aspect * s->height_with_aspect) /
-			((crop.x1-crop.x0)*(crop.y1-crop.y0)));
-		struct matrix4 tr; matrix4_identity(&tr);
-		matrix4_translate3f(&tr,&tr,-(crop.x0+crop.x1)*0.5f,-(crop.y0+crop.y1)*0.5f,0.0f);
-		matrix4_scale3f(&tr,&tr,scale,scale,1.0f);
-		matrix4_translate3f(&tr,&tr,s->width_with_aspect/2.0f,s->height_with_aspect/2.0f,0.0f);
+				    ((crop.x1 - crop.x0) * (crop.y1 - crop.y0)));
+		struct matrix4 tr;
+		matrix4_identity(&tr);
+		matrix4_translate3f(&tr, &tr, -(crop.x0 + crop.x1) * 0.5f, -(crop.y0 + crop.y1) * 0.5f, 0.0f);
+		matrix4_scale3f(&tr, &tr, scale, scale, 1.0f);
+		matrix4_translate3f(&tr, &tr, s->width_with_aspect / 2.0f, s->height_with_aspect / 2.0f, 0.0f);
 		gs_matrix_mul(&tr);
 	}
 	gs_matrix_translate3f(x, y, 0.0f);
-	if (s->prop_follow_rotation) gs_matrix_rotaa4f(0.0f,0.0f,1.0f,s->prop_angle);
-        if (s->prop_rotation != 0.0f) gs_matrix_rotaa4f(0.0f,0.0f,1.0f,s->prop_rotation * 0.01745329252f);
-	gs_matrix_translate3f(-target_w*0.5f, -target_h*0.5f, 0.0f);
+	if (s->prop_follow_rotation)
+		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_angle);
+	if (s->prop_rotation != 0.0f)
+		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_rotation * 0.01745329252f);
+	gs_matrix_translate3f(-target_w * 0.5f, -target_h * 0.5f, 0.0f);
 
-	gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
-	gs_eparam_t *color = gs_effect_get_param_by_name(effect, "color");
-	gs_effect_set_texture(image, s->prop_texture);
-	if (color) {
-		struct vec4 c; vec4_set(&c,1.0f,1.0f,1.0f,s->prop_opacity);
-		gs_effect_set_vec4(color,&c);
-	}
-	while (gs_effect_loop(effect, "Draw"))
-		gs_draw_sprite(s->prop_texture, 0, (uint32_t)target_w, (uint32_t)target_h);
+	draw_prop_texture(s, s->prop_texture, (uint32_t)target_w, (uint32_t)target_h, false);
 	gs_matrix_pop();
 }
 
 static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug_notrack)
 {
-        if (!s->tracked_source_enabled || !s->tracked_source_ref)
-                return;
+	if (!s->tracked_source_enabled || !s->tracked_source_ref || (s->prop_hide_lost && !s->prop_tracking) ||
+	    s->prop_opacity <= 0.0f)
+		return;
 
-        obs_source_t *source = obs_weak_source_get_source(s->tracked_source_ref);
-        if (!source)
-                return;
+	obs_source_t *source = obs_weak_source_get_source(s->tracked_source_ref);
+	if (!source)
+		return;
 
-        const uint32_t sw = obs_source_get_width(source);
-        const uint32_t sh = obs_source_get_height(source);
-        if (sw == 0 || sh == 0) {
-                obs_source_release(source);
-                return;
-        }
+	if (recursive_prop_source(s, source)) {
+		obs_source_release(source);
+		return;
+	}
 
-        if (!s->tracked_texrender)
-                s->tracked_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+	const uint32_t sw = obs_source_get_width(source);
+	const uint32_t sh = obs_source_get_height(source);
+	if (sw == 0 || sh == 0) {
+		obs_source_release(source);
+		return;
+	}
 
-        gs_texrender_reset(s->tracked_texrender);
-        gs_blend_state_push();
-        gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+	if (!s->tracked_texrender)
+		s->tracked_texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 
-        if (gs_texrender_begin(s->tracked_texrender, sw, sh)) {
-                struct vec4 clear_color;
-                vec4_zero(&clear_color);
-                gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-                gs_ortho(0.0f, (float)sw, 0.0f, (float)sh, -100.0f, 100.0f);
-                obs_source_video_render(source);
-                gs_texrender_end(s->tracked_texrender);
-        }
+	if (!s->tracked_texrender) {
+		obs_source_release(source);
+		return;
+	}
+	bool rendered = false;
+	gs_texrender_reset(s->tracked_texrender);
+	gs_blend_state_push();
+	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
-        gs_blend_state_pop();
-        obs_source_release(source);
+	if (gs_texrender_begin(s->tracked_texrender, sw, sh)) {
+		struct vec4 clear_color;
+		vec4_zero(&clear_color);
+		gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+		gs_ortho(0.0f, (float)sw, 0.0f, (float)sh, -100.0f, 100.0f);
+		obs_source_video_render(source);
+		gs_texrender_end(s->tracked_texrender);
+		rendered = true;
+	}
 
-        gs_texture_t *tex = gs_texrender_get_texture(s->tracked_texrender);
-        if (!tex)
-                return;
+	gs_blend_state_pop();
+	obs_source_release(source);
 
-        float x = s->prop_x + s->prop_offset_x * s->prop_size;
-        float y = s->prop_y + s->prop_offset_y * s->prop_size;
-        float target_w = (s->prop_follow_size ? s->prop_size : 120.0f) * s->prop_scale;
-        float target_h = target_w * (float)sh / (float)sw;
+	if (!rendered)
+		return;
+	gs_texture_t *tex = gs_texrender_get_texture(s->tracked_texrender);
+	if (!tex)
+		return;
 
-        gs_matrix_push();
-        if (!debug_notrack) {
-                const rectf_s &crop = s->ftm->crop_cur;
-                float scale = sqrtf((float)(s->width_with_aspect * s->height_with_aspect) /
-                        ((crop.x1-crop.x0)*(crop.y1-crop.y0)));
-                struct matrix4 tr;
-                matrix4_identity(&tr);
-                matrix4_translate3f(&tr, &tr, -(crop.x0+crop.x1)*0.5f, -(crop.y0+crop.y1)*0.5f, 0.0f);
-                matrix4_scale3f(&tr, &tr, scale, scale, 1.0f);
-                matrix4_translate3f(&tr, &tr, s->width_with_aspect/2.0f, s->height_with_aspect/2.0f, 0.0f);
-                gs_matrix_mul(&tr);
-        }
+	float x = s->prop_x + s->prop_offset_x * s->prop_size;
+	float y = s->prop_y + s->prop_offset_y * s->prop_size;
+	float target_w = (s->prop_follow_size ? s->prop_size : 120.0f) * s->prop_scale;
+	float target_h = target_w * (float)sh / (float)sw;
 
-        gs_matrix_translate3f(x, y, 0.0f);
-        if (s->prop_follow_rotation)
-                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_angle);
-        if (s->prop_rotation != 0.0f)
-                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_rotation * 0.01745329252f);
-        gs_matrix_translate3f(-target_w * 0.5f, -target_h * 0.5f, 0.0f);
+	gs_matrix_push();
+	if (!debug_notrack) {
+		const rectf_s &crop = s->ftm->crop_cur;
+		float scale = sqrtf((float)(s->width_with_aspect * s->height_with_aspect) /
+				    ((crop.x1 - crop.x0) * (crop.y1 - crop.y0)));
+		struct matrix4 tr;
+		matrix4_identity(&tr);
+		matrix4_translate3f(&tr, &tr, -(crop.x0 + crop.x1) * 0.5f, -(crop.y0 + crop.y1) * 0.5f, 0.0f);
+		matrix4_scale3f(&tr, &tr, scale, scale, 1.0f);
+		matrix4_translate3f(&tr, &tr, s->width_with_aspect / 2.0f, s->height_with_aspect / 2.0f, 0.0f);
+		gs_matrix_mul(&tr);
+	}
 
-        gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
-        gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
-        gs_effect_set_texture(image, tex);
+	gs_matrix_translate3f(x, y, 0.0f);
+	if (s->prop_follow_rotation)
+		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_angle);
+	if (s->prop_rotation != 0.0f)
+		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->prop_rotation * 0.01745329252f);
+	gs_matrix_translate3f(-target_w * 0.5f, -target_h * 0.5f, 0.0f);
 
-        while (gs_effect_loop(effect, "Draw"))
-                gs_draw_sprite(tex, 0, (uint32_t)target_w, (uint32_t)target_h);
+	draw_prop_texture(s, tex, (uint32_t)target_w, (uint32_t)target_h, true);
 
-        gs_matrix_pop();
+	gs_matrix_pop();
 }
-
 
 static inline void draw_frame(struct face_tracker_filter *s)
 {
@@ -1131,7 +1217,7 @@ static inline void draw_frame(struct face_tracker_filter *s)
 
 	draw_frame_texture(s, debug_notrack);
 	draw_face_prop(s, debug_notrack);
-        draw_tracked_source(s, debug_notrack);
+	draw_tracked_source(s, debug_notrack);
 
 	if (s->debug_faces && (!s->is_active || s->debug_always_show))
 		draw_frame_info(s, debug_notrack);
@@ -1140,6 +1226,9 @@ static inline void draw_frame(struct face_tracker_filter *s)
 static void ftf_render(void *data, gs_effect_t *)
 {
 	auto *s = (struct face_tracker_filter *)data;
+	tracker_render_guard guard(s->context);
+	if (!guard)
+		return;
 	if (!s->target_valid) {
 		obs_source_skip_video_filter(s->context);
 		return;
@@ -1165,6 +1254,9 @@ static void ftf_render(void *data, gs_effect_t *)
 static void fts_render(void *data, gs_effect_t *)
 {
 	auto *s = (struct face_tracker_filter *)data;
+	tracker_render_guard guard(s->context);
+	if (!guard)
+		return;
 	if (!s->target_valid)
 		return;
 
@@ -1298,12 +1390,3 @@ extern "C" void register_face_tracker_filter(bool hide_filter, bool hide_source)
 	info.video_render = fts_render;
 	obs_register_source(&info);
 }
-
-
-
-
-
-
-
-
-

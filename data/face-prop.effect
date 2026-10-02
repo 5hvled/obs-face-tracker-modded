@@ -1,0 +1,37 @@
+uniform float4x4 ViewProj;
+uniform texture2d image;
+uniform float opacity;
+sampler_state prop_sampler {
+    Filter = Linear;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+struct VertInOut {
+    float4 pos : POSITION;
+    float2 uv : TEXCOORD0;
+};
+VertInOut VSProp(VertInOut v) {
+    v.pos = mul(float4(v.pos.xyz, 1.0), ViewProj);
+    return v;
+}
+float4 PSStraight(VertInOut v) : TARGET {
+    float4 c = image.Sample(prop_sampler, v.uv);
+    c.a *= opacity;
+    c.rgb *= c.a;
+    return c;
+}
+float4 PSPremultiplied(VertInOut v) : TARGET {
+    return image.Sample(prop_sampler, v.uv) * opacity;
+}
+technique DrawStraight {
+    pass {
+        vertex_shader = VSProp(v);
+        pixel_shader = PSStraight(v);
+    }
+}
+technique DrawPremultiplied {
+    pass {
+        vertex_shader = VSProp(v);
+        pixel_shader = PSPremultiplied(v);
+    }
+}
