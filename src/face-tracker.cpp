@@ -136,6 +136,7 @@ static void ftf_update(void *data, obs_data_t *settings)
         s->tracked_source_pos_smoothing = (float)obs_data_get_double(settings, "tracked_source_pos_smoothing");
         s->tracked_source_scale_smoothing = (float)obs_data_get_double(settings, "tracked_source_scale_smoothing");
         s->tracked_source_rotation_smoothing = (float)obs_data_get_double(settings, "tracked_source_rotation_smoothing");
+        s->tracked_source_rotation = (float)obs_data_get_double(settings, "tracked_source_rotation");
         s->tracked_source_min_size = (float)obs_data_get_double(settings, "tracked_source_min_size");
         s->tracked_source_max_size = (float)obs_data_get_double(settings, "tracked_source_max_size");
         s->tracked_source_max_rotation = (float)obs_data_get_double(settings, "tracked_source_max_rotation") * 0.01745329252f;
@@ -374,9 +375,6 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_property_list_add_int(lost,"Freeze",1);
 		obs_property_list_add_int(lost,"Fade out",2);
 		obs_properties_add_float(pp,"prop_lost_fade_time","Fade time (seconds)",0.05,5.0,0.05);
-                obs_properties_add_bool(pp, "tracked_source_enabled", "Enable Tracked Source / Scene");
-                obs_property_t *tracked_p = obs_properties_add_list(pp, "tracked_source_name", "Tracked Source / Scene", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-                property_list_add_sources(tracked_p, s ? s->context : NULL);
 		obs_properties_add_group(props, "face_prop", "Face Prop Overlay", OBS_GROUP_NORMAL, pp);
                 obs_properties_t *sp=obs_properties_create();
                 obs_properties_add_float(sp,"tracked_source_scale","Source scale",0.1,10.0,0.05);
@@ -386,6 +384,10 @@ static obs_properties_t *ftf_properties(void *data)
                 obs_properties_add_float_slider(sp,"tracked_source_pos_smoothing","Position smoothing",0.0,0.99,0.01);
                 obs_properties_add_float_slider(sp,"tracked_source_scale_smoothing","Scale smoothing",0.0,0.99,0.01);
                 obs_properties_add_float_slider(sp,"tracked_source_rotation_smoothing","Rotation smoothing",0.0,0.99,0.01);
+                obs_properties_add_float_slider(sp,"tracked_source_rotation","Rotation (degrees)",-180.0,180.0,1.0);
+                obs_properties_add_bool(sp, "tracked_source_enabled", "Enable Tracked Source / Scene");
+                obs_property_t *tracked_p = obs_properties_add_list(sp, "tracked_source_name", "Tracked Source / Scene", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+                property_list_add_sources(tracked_p, s ? s->context : NULL);
                 obs_properties_add_bool(sp,"tracked_source_follow_size","Follow face size");
                 obs_properties_add_bool(sp,"tracked_source_follow_rotation","Follow head tilt");
                 obs_properties_add_float(sp,"tracked_source_min_size","Minimum face size",1.0,10000.0,1.0);
@@ -513,6 +515,7 @@ static void ftf_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "tracked_source_pos_smoothing", 0.70);
 	obs_data_set_default_double(settings, "tracked_source_scale_smoothing", 0.75);
 	obs_data_set_default_double(settings, "tracked_source_rotation_smoothing", 0.85);
+	obs_data_set_default_double(settings, "tracked_source_rotation", 0.0);
 	obs_data_set_default_double(settings, "tracked_source_min_size", 1.0);
 	obs_data_set_default_double(settings, "tracked_source_max_size", 10000.0);
 	obs_data_set_default_double(settings, "tracked_source_max_rotation", 180.0);
@@ -987,7 +990,7 @@ static inline void calculate_error(struct face_tracker_filter *s)
 		s->tracked_source_tracking=false;
 	}
 	if(was_tracking!=s->prop_tracking)
-		emit_face_event(s,s->prop_tracking?"face_detected":"face_lost");
+		emit_face_event(s,s->prop_tracking?"face_detected":"face_lost",s->prop_tracking);
 
 	if (s->debug_data_error) {
 		fprintf(s->debug_data_error, "%f\t%f\t%f\t%f\n", os_gettime_ns() * 1e-9, s->detect_err.v[0],
@@ -1298,6 +1301,8 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
         gs_matrix_translate3f(x, y, 0.0f);
         if (s->tracked_source_follow_rotation)
                 gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->tracked_source_angle);
+        if (s->tracked_source_rotation != 0.0f)
+                gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, s->tracked_source_rotation * 0.01745329252f);
         gs_matrix_translate3f(-target_w * 0.5f, -target_h * 0.5f, 0.0f);
 
         gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
