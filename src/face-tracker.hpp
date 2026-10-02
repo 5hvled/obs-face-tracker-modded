@@ -8,6 +8,7 @@ struct face_tracker_filter
 {
 	obs_source_t *context;
 	gs_texrender_t *texrender;
+        gs_texrender_t *tracked_texrender;
 	gs_texrender_t *texrender_scaled;
 	gs_stagesurf_t *stagesurface;
 	uint32_t known_width;
@@ -25,6 +26,20 @@ struct face_tracker_filter
 
 	float track_z, track_x, track_y;
 	float scale_max;
+
+	// Face Prop overlay
+	bool prop_enabled;
+	char *prop_path;
+	gs_texture_t *prop_texture;
+	float prop_scale, prop_offset_x, prop_offset_y, prop_opacity, prop_smoothing, prop_rotation;
+	bool prop_follow_size, prop_follow_rotation, prop_hide_lost;
+	float prop_x, prop_y, prop_size, prop_angle;
+	bool prop_tracking;
+
+        // Tracked OBS source / scene
+        bool tracked_source_enabled;
+        char *tracked_source_name;
+        obs_weak_source_t *tracked_source_ref;
 
 	f3 kp;
 	float ki;
@@ -56,3 +71,4 @@ struct face_tracker_filter
 	obs_hotkey_pair_id hotkey_pause;
 	obs_hotkey_id hotkey_reset;
 };
+
