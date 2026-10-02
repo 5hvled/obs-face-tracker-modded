@@ -44,7 +44,7 @@ struct face_tracker_filter
         bool tracked_source_enabled;
         char *tracked_source_name;
         obs_weak_source_t *tracked_source_ref;
-        float tracked_source_scale, tracked_source_offset_x, tracked_source_offset_y, tracked_source_opacity;
+        float tracked_source_scale, tracked_source_offset_x, tracked_source_offset_y, tracked_source_opacity, tracked_source_rotation;
         float tracked_source_pos_smoothing, tracked_source_scale_smoothing, tracked_source_rotation_smoothing;
         float tracked_source_min_size, tracked_source_max_size, tracked_source_max_rotation;
         int tracked_source_lost_behavior;
