@@ -26,6 +26,7 @@ public:
 		rectf_s crop_tracker; // crop corresponding to current processing image
 		rectf_s crop_rect;    // crop corresponding to rect
 		std::vector<pointf_s> landmark;
+		std::shared_ptr<texture_object> texture;
 		float att;
 		float score_first;
 		enum tracker_state_e {
