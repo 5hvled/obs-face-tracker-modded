@@ -240,6 +240,9 @@ static void *ftf_create(obs_data_t *settings, obs_source_t *context)
 	s->tracked_source_tracking = false;
 	s->prop_render_opacity = 1.0f;
 	s->tracked_source_render_opacity = 1.0f;
+	s->pose_3d_reference_set = false;
+	s->pose_3d_current_yaw = s->pose_3d_current_pitch = s->pose_3d_current_roll = 0.0f;
+	s->pose_3d_reference_yaw = s->pose_3d_reference_pitch = s->pose_3d_reference_roll = 0.0f;
 
 	obs_source_update(context, settings);
 
@@ -307,6 +310,28 @@ static void ftf_destroy(void *data)
 	bfree(s->debug_data_control_last);
 
 	bfree(s);
+}
+
+static bool ftf_set_3d_reference(obs_properties_t *, obs_property_t *, void *data)
+{
+	auto *s = (struct face_tracker_filter *)data;
+
+	// The latest pose is continuously updated while a face is tracked.
+	// Store it as the new neutral orientation and immediately zero both
+	// overlay pose outputs so the change takes effect on the next frame.
+	s->pose_3d_reference_yaw = s->pose_3d_current_yaw;
+	s->pose_3d_reference_pitch = s->pose_3d_current_pitch;
+	s->pose_3d_reference_roll = s->pose_3d_current_roll;
+	s->pose_3d_reference_set = true;
+
+	s->prop_3d_yaw = 0.0f;
+	s->prop_3d_pitch = 0.0f;
+	s->prop_3d_roll = 0.0f;
+	s->tracked_source_3d_yaw = 0.0f;
+	s->tracked_source_3d_pitch = 0.0f;
+	s->tracked_source_3d_roll = 0.0f;
+
+	return true;
 }
 
 static bool ftf_reset_tracking(obs_properties_t *, obs_property_t *, void *data)
@@ -395,6 +420,7 @@ static obs_properties_t *ftf_properties(void *data)
 		obs_property_list_add_int(lost,"Freeze",1);
 		obs_property_list_add_int(lost,"Fade out",2);
 		obs_properties_add_float(pp,"prop_lost_fade_time","Fade time (seconds)",0.05,5.0,0.05);
+		obs_properties_add_button(pp, "prop_3d_set_reference", "Set Current Head Pose as 3D Reference", ftf_set_3d_reference);
 		obs_properties_add_bool(pp, "prop_3d_enabled", "Enable 3D Head Tracking");
 		obs_properties_add_bool(pp, "prop_3d_follow_yaw", "Follow Yaw (turn left/right)");
 		obs_properties_add_bool(pp, "prop_3d_follow_pitch", "Follow Pitch (look up/down)");
@@ -423,6 +449,7 @@ static obs_properties_t *ftf_properties(void *data)
                 obs_properties_add_float(sp,"tracked_source_min_size","Minimum face size",1.0,10000.0,1.0);
                 obs_properties_add_float(sp,"tracked_source_max_size","Maximum face size",1.0,10000.0,1.0);
                 obs_properties_add_float_slider(sp,"tracked_source_max_rotation","Max head rotation",0.0,180.0,1.0);
+                obs_properties_add_button(sp,"tracked_source_3d_set_reference","Set Current Head Pose as 3D Reference",ftf_set_3d_reference);
                 obs_properties_add_bool(sp,"tracked_source_3d_enabled","Enable 3D Head Tracking");
                 obs_properties_add_bool(sp,"tracked_source_3d_follow_yaw","Follow Yaw (turn left/right)");
                 obs_properties_add_bool(sp,"tracked_source_3d_follow_pitch","Follow Pitch (look up/down)");
@@ -1046,6 +1073,21 @@ static inline void calculate_error(struct face_tracker_filter *s)
 		float tx, ty, ts, ta;
 		float pose_yaw = 0.0f, pose_pitch = 0.0f, pose_roll = 0.0f;
 		calculate_head_pose_3d(*best, pose_yaw, pose_pitch, pose_roll);
+
+		// Keep the raw camera pose so the reference button can capture it.
+		s->pose_3d_current_yaw = pose_yaw;
+		s->pose_3d_current_pitch = pose_pitch;
+		s->pose_3d_current_roll = pose_roll;
+
+		// Once a reference is set, all 3D motion is measured relative to it.
+		if (s->pose_3d_reference_set) {
+			pose_yaw -= s->pose_3d_reference_yaw;
+			pose_pitch -= s->pose_3d_reference_pitch;
+			pose_roll -= s->pose_3d_reference_roll;
+			while (pose_roll > (float)M_PI) pose_roll -= (float)(2 * M_PI);
+			while (pose_roll < -(float)M_PI) pose_roll += (float)(2 * M_PI);
+		}
+
 		calculate_overlay_target(*best, s->prop_anchor, tx, ty, ts, ta);
 		ts = std::max(s->prop_min_size, std::min(s->prop_max_size, ts));
 		ta = std::max(-s->prop_max_rotation, std::min(s->prop_max_rotation, ta));
