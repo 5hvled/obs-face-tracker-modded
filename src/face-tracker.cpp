@@ -1643,7 +1643,7 @@ static inline void draw_tracked_source(struct face_tracker_filter *s, bool debug
 
         // All faces mode renders the selected OBS source once at every
         // currently tracked face. The source texture is shared between instances.
-        if (s->face_selection_mode == 4 && s->prop_tracking) {
+        if (s->face_selection_mode == 4 && s->tracked_source_tracking) {
                 for (const auto &tr : s->ftm->tracker_rects) {
                         if (tr.face_id <= 0 || tr.rect.score <= 0.0f)
                                 continue;
