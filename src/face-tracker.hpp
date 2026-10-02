@@ -44,6 +44,10 @@ struct face_tracker_filter
 	float prop_3d_yaw, prop_3d_pitch, prop_3d_roll;
 	float prop_3d_yaw_smoothing, prop_3d_pitch_smoothing, prop_3d_roll_smoothing;
 	float prop_3d_yaw_amount, prop_3d_pitch_amount, prop_3d_roll_amount;
+	// Runtime 3D pose reference: current head pose becomes the zero point.
+	bool pose_3d_reference_set;
+	float pose_3d_current_yaw, pose_3d_current_pitch, pose_3d_current_roll;
+	float pose_3d_reference_yaw, pose_3d_reference_pitch, pose_3d_reference_roll;
 
         // Tracked OBS source / scene
         bool tracked_source_enabled;
