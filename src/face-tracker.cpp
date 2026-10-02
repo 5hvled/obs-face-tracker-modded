@@ -941,11 +941,24 @@ static void ft_tick_internal(struct face_tracker_filter *s, float second, bool w
 			s->prop_render_opacity=lost_alpha(false,s->prop_lost_behavior,s->prop_lost_fade_time,s->prop_lost_elapsed,s->prop_opacity);
 			s->tracked_source_render_opacity=lost_alpha(false,s->tracked_source_lost_behavior,s->tracked_source_lost_fade_time,s->tracked_source_lost_elapsed,s->tracked_source_opacity);
 		}
-		if(s->face_size_trigger_enabled){
-			float frame_size=sqrtf((float)s->known_width*s->known_height);
-			float ratio=frame_size>0.0f?s->prop_size/frame_size:0.0f;
-			bool active=s->prop_tracking&&ratio>=s->face_size_trigger_min&&ratio<=s->face_size_trigger_max;
-			if(active!=s->face_size_triggered){s->face_size_triggered=active;emit_face_event(s,"face_size_trigger",active);}
+		if (s->face_size_trigger_enabled) {
+			float frame_size = sqrtf((float)s->known_width * s->known_height);
+			float face_size = 0.0f;
+			if (s->selected_face_id > 0) {
+				for (const auto &tr : s->ftm->tracker_rects) {
+					if (tr.face_id == s->selected_face_id && tr.rect.score > 0.0f) {
+						face_size = get_width(tr.rect);
+						break;
+					}
+				}
+			}
+			float ratio = frame_size > 0.0f ? face_size / frame_size : 0.0f;
+			bool active = s->selected_face_id > 0 &&
+				ratio >= s->face_size_trigger_min && ratio <= s->face_size_trigger_max;
+			if (active != s->face_size_triggered) {
+				s->face_size_triggered = active;
+				emit_face_event(s, "face_size_trigger", active, s->selected_face_id);
+			}
 		}
 		tick_filter(s, second);
 	}
@@ -985,7 +998,7 @@ static void fts_tick(void *data, float second)
 	s->ftm->tick(second);
 
 	obs_source_t *target = obs_weak_source_get_source(s->target_ref);
-	const char *name = obs_source_get_name(target);
+	const char *name = target ? obs_source_get_name(target) : NULL;
 
 	if (s->target_name && (!target || !name || strcmp(name, s->target_name))) {
 		obs_source_release(target);
@@ -1698,15 +1711,16 @@ static void cb_set_state(void *data, calldata_t *cd)
 		ftf_reset_tracking(NULL, NULL, s);
 }
 
-static void emit_face_event(struct face_tracker_filter *s, const char *signal, bool active)
+static void emit_face_event(struct face_tracker_filter *s, const char *signal, bool active, int face_id)
 {
 	struct calldata cd;
 	uint8_t stack[128];
-	calldata_init_fixed(&cd,stack,sizeof(stack));
-	calldata_set_ptr(&cd,"source",s->context);
-	calldata_set_bool(&cd,"active",active);
-	signal_handler_t *sh=obs_source_get_signal_handler(s->context);
-	signal_handler_signal(sh,signal,&cd);
+	calldata_init_fixed(&cd, stack, sizeof(stack));
+	calldata_set_ptr(&cd, "source", s->context);
+	calldata_set_bool(&cd, "active", active);
+	calldata_set_int(&cd, "face_id", face_id);
+	signal_handler_t *sh = obs_source_get_signal_handler(s->context);
+	signal_handler_signal(sh, signal, &cd);
 }
 
 static void emit_state_changed(struct face_tracker_filter *s)
