@@ -153,18 +153,59 @@ inline void face_tracker_manager::copy_detector_to_tracker()
 		return;
 	}
 
-	// The detector can return more than one face.  Start one correlation
-	// tracker per detection.  The existing single-face path uses the first
-	// tracker as the seed; additional trackers are created from the same
-	// camera frame so every face starts from exactly the same image.
+	// Preserve face identity across detector refreshes.  Dlib correlation
+	// trackers can continue tracking between detector passes, but the detector
+	// can create a fresh tracker set.  Match each new detection to the previous
+	// tracker with the greatest IoU and carry that tracker's face_id forward.
+	// This keeps Face 1 / Face 2 stable when confidence ordering changes.
+	std::vector<int> assigned_face_ids(detect_rects.size(), 0);
+	std::vector<int> matched_tracker_indices;
+	matched_tracker_indices.reserve(detect_rects.size());
+
+	for (size_t di = 0; di < detect_rects.size(); ++di) {
+		const rect_s &det = detect_rects[di];
+		const int det_area = std::max(1, (det.x1 - det.x0) * (det.y1 - det.y0));
+		int best_ix = -1;
+		int best_overlap = 0;
+
+		for (size_t ti = 0; ti < trackers.size(); ++ti) {
+			if (ti == seed_index ||
+				trackers[ti].state != tracker_inst_s::tracker_state_e::tracker_state_available ||
+				trackers[ti].face_id <= 0)
+				continue;
+
+			if (std::find(matched_tracker_indices.begin(), matched_tracker_indices.end(), (int)ti) !=
+				matched_tracker_indices.end())
+				continue;
+
+			const rect_s &old = trackers[ti].rect;
+			const int old_area = std::max(1, (old.x1 - old.x0) * (old.y1 - old.y0));
+			const int overlap = common_area(det, old);
+			if (overlap <= 0)
+				continue;
+
+			const int union_area = det_area + old_area - overlap;
+			if (union_area > 0 && overlap * 100 / union_area > 15 && overlap > best_overlap) {
+				best_overlap = overlap;
+				best_ix = (int)ti;
+			}
+		}
+
+		if (best_ix >= 0) {
+			assigned_face_ids[di] = trackers[best_ix].face_id;
+			matched_tracker_indices.push_back(best_ix);
+		}
+	}
+
 	for (size_t di = 0; di < detect_rects.size(); ++di) {
 		tracker_inst_s *t = nullptr;
 
 		if (di == 0) {
 			t = &trackers[seed_index];
+			t->face_id = assigned_face_ids[di] > 0 ? assigned_face_ids[di] : next_face_id++;
 		} else {
 			tracker_inst_s extra{};
-			extra.face_id = next_face_id++;
+			extra.face_id = assigned_face_ids[di] > 0 ? assigned_face_ids[di] : next_face_id++;
 			extra.rect = rect_s{0, 0, 0, 0, 0.0f};
 			extra.crop_tracker = trackers[seed_index].crop_tracker;
 			extra.crop_rect = rectf_s{0.0f, 0.0f, 0.0f, 0.0f};
